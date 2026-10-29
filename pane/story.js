@@ -415,6 +415,19 @@ function blockHtml(b, k, parsed, ctx, named) {
   }
 }
 
+// A widget the GM drew in the chat (html.13), before the turn's text, as the chat had it (the call comes before the
+// text after it). A frame on its own address, which the server answers with the widget's document and its own CSP (a
+// srcdoc or data: frame would inherit the pane's, which runs no inline script). Isolation comes from that CSP's
+// `sandbox allow-scripts`, which gives the document no origin, so nothing in it reaches the pane; the attribute must
+// also allow same-origin, because the app's browser pane refuses to load a frame sandboxed without it
+// (ERR_BLOCKED_BY_CLIENT). teller.js sizes it from the number the frame posts.
+// One too big to keep says so, with its size; the chat has it.
+export function widgetHtml(w, turn, k) {
+  const title = w.title || 'Widget';
+  if (!w.v) return `<p class="blk widget-skipped">${esc(title)}: a widget too big to show here (${Math.ceil(w.bytes / 1024)} KB). It is in the chat.</p>`;
+  return `<figure class="blk widget"><iframe sandbox="allow-scripts allow-same-origin" title="${esc(title)}" src="/widget/${Number(turn.session)}/${Number(turn.i)}/${k}?v=${esc(w.v)}"></iframe></figure>`;
+}
+
 // A bare slash command (`/play w`) is the player driving the app, not playing: not shown.
 const isCommand = (text) => /^\/[\w:-]+(?:[ \t][^\n]*)?$/.test(text.trim());
 
@@ -427,10 +440,11 @@ export function turnView(turn, ctx, previous = null) {
     return { html: `<p class="blk yours"><b>${esc(ctx.you || 'You')}</b><span>${turn.text.trim().split('\n').map(esc).join('<br>')}</span></p>`, parsed: null };
   }
   const parsed = parseTurn(turn.text, previous);
-  if (!parsed.blocks.length) return null;
+  const widgets = (turn.widgets ?? []).map((w, k) => widgetHtml(w, turn, k)).join('');
+  if (!parsed.blocks.length && !widgets) return null;
   const named = new Set();
   const voiceCtx = { ...ctx, voice: voiceOf(turn, ctx) };
-  const html = parsed.blocks.map((b, k) => blockHtml(b, k, parsed, voiceCtx, named)).join('')
+  const html = widgets + parsed.blocks.map((b, k) => blockHtml(b, k, parsed, voiceCtx, named)).join('')
     + (parsed.closing >= 0 ? '<p class="blk reply">Your reply goes in the chat.</p>' : '');
   return { html, parsed };
 }

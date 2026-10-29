@@ -65,7 +65,8 @@ function blockHtml(b) {
 }
 
 function send(el, text, note) {
-  try { sendPrompt(text); note.textContent = 'sent'; } catch { note.textContent = `couldn't send: type ${text}`; }
+  // The line break keeps two widgets' texts apart when both land in one reply.
+  try { sendPrompt(`${text}\n`); note.textContent = 'sent'; } catch { note.textContent = `couldn't send: type ${text}`; }
   el.querySelectorAll('input,.kp button,.kd button').forEach((x) => { x.disabled = true; x.tabIndex = -1; });
 }
 

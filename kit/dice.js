@@ -87,7 +87,7 @@ function setUp(el) {
     try { localStorage.setItem(memo, JSON.stringify(dice)); } catch { /* as above */ }
     const line = `[roll ${d.id}] ${d.who}${d.what ? `: ${d.what}` : ''}. I rolled ${dice.join(', ')}. (tt roll … --dice ${dice.join(',')} --id ${d.id})`;
     try {
-      sendPrompt(line);
+      sendPrompt(`${line}\n`); // the break keeps it apart from another widget's text in the same reply
       show(dice, 'Sent');
     } catch {
       show(dice, `Couldn't send. Type: rolled ${dice.join(', ')} for roll ${d.id}`);
