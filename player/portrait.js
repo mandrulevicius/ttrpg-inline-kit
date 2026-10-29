@@ -70,6 +70,7 @@ export function stillView(url, meta, which) {
 
 function image(src) {
   const im = new Image();
+  im.crossOrigin = 'anonymous'; // a CDN's frames stay readable, so blink and talk overlays are exact (overlayOf)
   im.decoding = 'async';
   im.src = src;
   return im.decode().then(() => im);
