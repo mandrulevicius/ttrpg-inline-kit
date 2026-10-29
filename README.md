@@ -1,11 +1,11 @@
-# psionic-ttrpg-kit
+# ttrpg-inline-kit
 
 Widget modules and portrait art for a text tabletop RPG whose Game Master draws HTML widgets in a chat. The chat's
 widget sandbox loads code and images only from public CDNs, so this repo exists to be served by jsDelivr, always at a
 pinned commit:
 
 ```
-https://cdn.jsdelivr.net/gh/mandrulevicius/psionic-ttrpg-kit@<commit>/kit/probe.js
+https://cdn.jsdelivr.net/gh/mandrulevicius/ttrpg-inline-kit@<commit>/kit/probe.js
 ```
 
 - `kit/`: the widget modules.
