@@ -1,0 +1,118 @@
+{
+ "id": "npc.odile-fenn",
+ "name": "Odile Fenn",
+ "pipeline": "vector-faces",
+ "kind": "live",
+ "renderer": "vector",
+ "size": [
+  184,
+  230
+ ],
+ "scale": 2,
+ "smooth": true,
+ "view": [
+  32,
+  31,
+  136,
+  170
+ ],
+ "frames": {
+  "neutral": "neutral.png"
+ },
+ "regions": {
+  "eyes": {
+   "x": 42,
+   "y": 87,
+   "w": 66,
+   "h": 24
+  },
+  "mouth": {
+   "x": 60,
+   "y": 143,
+   "w": 27,
+   "h": 11
+  }
+ },
+ "icons": {
+  "low": {
+   "file": "icon_low.png",
+   "size": [
+    32,
+    32
+   ]
+  },
+  "medium": {
+   "file": "icon_medium.png",
+   "size": [
+    96,
+    96
+   ]
+  }
+ },
+ "face": {
+  "seed": "npc.odile-fenn",
+  "sex": "f",
+  "lookOlder": 1,
+  "age": 64,
+  "build": {
+   "mass": 0.28,
+   "soft": 0
+  },
+  "face": {
+   "width": 0.2,
+   "length": 0.85,
+   "jaw": 0.35,
+   "chin": 0.5,
+   "cheekbones": 0.9,
+   "hollow": 0.4,
+   "shape": "long"
+  },
+  "skin": {
+   "weathered": 0.8,
+   "freckles": 0,
+   "pocked": 0,
+   "flush": 0,
+   "spots": 0.8,
+   "tone": "#c08b64"
+  },
+  "lines": {
+   "forehead": 0.9,
+   "crows": 0.85,
+   "frown": 0.85
+  },
+  "hair": {
+   "volume": 0.15,
+   "recede": 0,
+   "curl": 0,
+   "messy": 0.2,
+   "color": "#7a7876",
+   "grey": 0,
+   "style": "short",
+   "cut": "crop"
+  },
+  "brows": {},
+  "eyes": {
+   "color": "#7a9080",
+   "hooded": 0.85
+  },
+  "nose": {},
+  "mouth": {
+   "lips": 0.08
+  },
+  "ears": {},
+  "beard": {
+   "style": "none"
+  },
+  "marks": [],
+  "wear": {
+   "kind": "coat",
+   "color": "#5a3e2a",
+   "inner": "jumpsuit",
+   "innerColor": "#26344f"
+  },
+  "bearing": {
+   "nod": -0.2
+  },
+  "backdrop": "#44505a"
+ }
+}

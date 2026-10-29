@@ -1,0 +1,168 @@
+{
+ "id": "npc.odile-fenn",
+ "name": "Odile Fenn",
+ "pipeline": "painted-pixel",
+ "size": [
+  186,
+  186
+ ],
+ "base": "base.png",
+ "frames": {
+  "neutral": "neutral.png",
+  "look": "look.png",
+  "angry": "angry.png",
+  "warm": "warm.png",
+  "afraid": "afraid.png",
+  "blink_half": "blink_half.png",
+  "blink_closed": "blink_closed.png",
+  "talk_a": "talk_a.png",
+  "talk_b": "talk_b.png"
+ },
+ "regions": {
+  "eyes": {
+   "x": 44,
+   "y": 53,
+   "w": 65,
+   "h": 27
+  },
+  "mouth": {
+   "x": 55,
+   "y": 113,
+   "w": 35,
+   "h": 16
+  }
+ },
+ "icons": {
+  "low": {
+   "file": "icon_low.png",
+   "size": [
+    32,
+    32
+   ],
+   "from": [
+    36,
+    14,
+    128,
+    128
+   ]
+  },
+  "medium": {
+   "file": "icon_medium.png",
+   "size": [
+    93,
+    93
+   ],
+   "from": [
+    0,
+    0,
+    186,
+    186
+   ]
+  }
+ },
+ "palette": [
+  "#362638",
+  "#da7c52",
+  "#7e7d80",
+  "#0e1534",
+  "#030102",
+  "#f29c6c",
+  "#8b425e",
+  "#0e0414",
+  "#b45c52",
+  "#afafad",
+  "#484b5d",
+  "#f4ac7a",
+  "#5e5a63",
+  "#513026",
+  "#3a1842",
+  "#f4a372",
+  "#8f8e8f",
+  "#ee9263",
+  "#4c3d43",
+  "#ea8b5d",
+  "#261829",
+  "#3b4155",
+  "#6d2d47",
+  "#22283f",
+  "#6d4739",
+  "#bc614d",
+  "#522c74",
+  "#84488a",
+  "#2f2d42",
+  "#151328",
+  "#9b5172",
+  "#868687",
+  "#924350",
+  "#cc704f",
+  "#ae564f",
+  "#321724",
+  "#1c2134",
+  "#343849",
+  "#df835c",
+  "#d27850",
+  "#1f071e",
+  "#000000",
+  "#040008",
+  "#6d656a",
+  "#72396d",
+  "#c36950",
+  "#a14e4e",
+  "#562a60",
+  "#757378",
+  "#aa5a62",
+  "#3d394c",
+  "#000005",
+  "#1a0e26",
+  "#504950",
+  "#09020c",
+  "#89456f",
+  "#73345d",
+  "#472644",
+  "#cdc8b4",
+  "#310e11",
+  "#f1eee5"
+ ],
+ "roles": {
+  "near.sclera": 58,
+  "near.sclera_shade": 16,
+  "near.pupil": 7,
+  "near.iris": 2,
+  "near.iris_dark": 53,
+  "near.lid": 42,
+  "far.sclera": 58,
+  "far.sclera_shade": 16,
+  "far.pupil": 7,
+  "far.iris": 2,
+  "far.iris_dark": 18,
+  "far.lid": 42,
+  "mouth.line": 42,
+  "mouth.lip": 39,
+  "mouth.inside": 59,
+  "mouth.teeth": 16,
+  "catchlight": 60
+ },
+ "source": {
+  "file": "source.webp",
+  "source_size": [
+   1024,
+   1024
+  ],
+  "cells": [
+   200,
+   200
+  ],
+  "scale": 5.12,
+  "edge_score": [
+   3.07,
+   3.06
+  ],
+  "resample_error": 1.98,
+  "crop": [
+   7,
+   7,
+   193,
+   193
+  ]
+ }
+}

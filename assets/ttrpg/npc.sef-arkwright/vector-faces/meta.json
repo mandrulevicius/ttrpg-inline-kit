@@ -1,0 +1,118 @@
+{
+ "id": "npc.sef-arkwright",
+ "name": "Sef Arkwright",
+ "pipeline": "vector-faces",
+ "kind": "live",
+ "renderer": "vector",
+ "size": [
+  184,
+  230
+ ],
+ "scale": 2,
+ "smooth": true,
+ "view": [
+  32,
+  31,
+  136,
+  170
+ ],
+ "frames": {
+  "neutral": "neutral.png"
+ },
+ "regions": {
+  "eyes": {
+   "x": 42,
+   "y": 88,
+   "w": 73,
+   "h": 24
+  },
+  "mouth": {
+   "x": 63,
+   "y": 140,
+   "w": 28,
+   "h": 11
+  }
+ },
+ "icons": {
+  "low": {
+   "file": "icon_low.png",
+   "size": [
+    32,
+    32
+   ]
+  },
+  "medium": {
+   "file": "icon_medium.png",
+   "size": [
+    96,
+    96
+   ]
+  }
+ },
+ "face": {
+  "seed": "npc.sef-arkwright",
+  "sex": "x",
+  "age": 22,
+  "build": {
+   "mass": 0.28,
+   "soft": 0
+  },
+  "face": {
+   "width": 0.78,
+   "length": 0.5,
+   "jaw": 0.48,
+   "chin": 0.5,
+   "cheekbones": 0.5,
+   "hollow": 0,
+   "shape": "round"
+  },
+  "skin": {
+   "weathered": 0,
+   "freckles": 0.65,
+   "pocked": 0,
+   "flush": 0,
+   "spots": 0,
+   "tone": "#b07a52"
+  },
+  "lines": {},
+  "hair": {
+   "volume": 0.5,
+   "recede": 0,
+   "curl": 0,
+   "messy": 0.3,
+   "color": "#2e2018",
+   "grey": 0,
+   "dye": "#5ccf8a",
+   "style": "short",
+   "fringe": 0.9,
+   "len": 0.1
+  },
+  "brows": {},
+  "eyes": {
+   "color": "#7d6a3a"
+  },
+  "nose": {},
+  "mouth": {
+   "gap": true
+  },
+  "ears": {},
+  "beard": {
+   "style": "none"
+  },
+  "marks": [
+   {
+    "kind": "earring",
+    "side": "left",
+    "count": 3,
+    "type": "ring",
+    "color": "#c8ccd0"
+   }
+  ],
+  "wear": {
+   "kind": "jumpsuit",
+   "color": "#3a4250"
+  },
+  "bearing": {},
+  "backdrop": "#44505a"
+ }
+}

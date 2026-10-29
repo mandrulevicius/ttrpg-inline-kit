@@ -1,0 +1,118 @@
+{
+ "id": "npc.nils-ormond",
+ "name": "Nils Ormond",
+ "pipeline": "vector-faces",
+ "kind": "live",
+ "renderer": "vector",
+ "size": [
+  184,
+  230
+ ],
+ "scale": 2,
+ "smooth": true,
+ "view": [
+  32,
+  31,
+  136,
+  170
+ ],
+ "frames": {
+  "neutral": "neutral.png"
+ },
+ "regions": {
+  "eyes": {
+   "x": 34,
+   "y": 89,
+   "w": 71,
+   "h": 22
+  },
+  "mouth": {
+   "x": 55,
+   "y": 141,
+   "w": 27,
+   "h": 11
+  }
+ },
+ "icons": {
+  "low": {
+   "file": "icon_low.png",
+   "size": [
+    32,
+    32
+   ]
+  },
+  "medium": {
+   "file": "icon_medium.png",
+   "size": [
+    96,
+    96
+   ]
+  }
+ },
+ "face": {
+  "seed": "npc.nils-ormond",
+  "sex": "m",
+  "age": 58,
+  "build": {
+   "mass": 0.8,
+   "soft": 0.2
+  },
+  "face": {
+   "width": 0.9,
+   "length": 0.5,
+   "jaw": 0.82,
+   "chin": 0.5,
+   "cheekbones": 0.5,
+   "hollow": 0,
+   "shape": "square"
+  },
+  "skin": {
+   "weathered": 0.8,
+   "freckles": 0,
+   "pocked": 0,
+   "flush": 0.55,
+   "spots": 0,
+   "tone": "#ecc9b0"
+  },
+  "lines": {
+   "crows": 0.85
+  },
+  "hair": {
+   "volume": 0.5,
+   "recede": 0,
+   "curl": 0,
+   "messy": 0.3,
+   "color": "#a19d98",
+   "grey": 0,
+   "style": "shaved"
+  },
+  "brows": {},
+  "eyes": {
+   "color": "#8fb2c8",
+   "size": 0.15
+  },
+  "nose": {},
+  "mouth": {},
+  "ears": {},
+  "beard": {
+   "style": "moustache",
+   "length": 0.9,
+   "color": "#a19d98",
+   "stain": "#b8962a"
+  },
+  "marks": [],
+  "wear": {
+   "kind": "jumpsuit",
+   "color": "#26344f",
+   "glasses": {
+    "shape": "square",
+    "pos": "forehead",
+    "thick": false,
+    "tape": null,
+    "tapeSide": null
+   }
+  },
+  "bearing": {},
+  "backdrop": "#44505a"
+ }
+}

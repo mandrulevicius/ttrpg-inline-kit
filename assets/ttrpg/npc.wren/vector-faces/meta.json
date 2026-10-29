@@ -1,0 +1,74 @@
+{
+ "id": "npc.wren",
+ "name": "Wren",
+ "pipeline": "vector-faces",
+ "kind": "live",
+ "renderer": "vector",
+ "size": [
+  184,
+  230
+ ],
+ "scale": 2,
+ "smooth": true,
+ "view": [
+  32,
+  31,
+  136,
+  170
+ ],
+ "frames": {
+  "neutral": "neutral.png"
+ },
+ "regions": {
+  "eyes": {
+   "x": 51,
+   "y": 93,
+   "w": 81,
+   "h": 32
+  },
+  "mouth": {
+   "x": 65,
+   "y": 137,
+   "w": 54,
+   "h": 22
+  }
+ },
+ "icons": {
+  "low": {
+   "file": "icon_low.png",
+   "size": [
+    32,
+    32
+   ]
+  },
+  "medium": {
+   "file": "icon_medium.png",
+   "size": [
+    96,
+    96
+   ]
+  }
+ },
+ "face": {
+  "seed": "npc.wren",
+  "kind": "machine",
+  "machine": {
+   "casing": "#2a2c2f",
+   "window": "slit",
+   "glow": "#cfe6ff",
+   "pulse": true,
+   "status": "#5ae08a",
+   "rack": "#d9d9d4",
+   "cradle": true,
+   "governor": true,
+   "seal": "red",
+   "tape": "WREN",
+   "code": "G-11",
+   "slot": "11",
+   "cables": true,
+   "scuffs": 0.2,
+   "plain": true
+  },
+  "backdrop": "#2f5a5e"
+ }
+}
