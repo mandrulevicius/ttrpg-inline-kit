@@ -242,10 +242,11 @@ export function recordOf(r, rolls, session) {
 }
 
 // A recorded roll drawn roomy: the Margin gauge (gauge.js) as the chat's widget draws it, settled. The raw line is
-// read aloud; the gauge's own summary is hidden from it, so nothing is said twice.
+// read aloud and the gauge leaves out its own summary, so nothing is said twice; its terms stay pointable (teller.js
+// wires their tips).
 function gaugeBlock(raw, d) {
   const r = resultOf(d, d.result.dice, d.result.frac ?? null, d.result.landed ?? null, d.result.push ?? 0);
-  return `<div class="blk roll gauge"><span class="sr">${esc(raw)}</span><div aria-hidden="true">${gaugeHtml(d, r, { roomy: true })}</div></div>`;
+  return `<div class="blk roll gauge"><span class="sr">${esc(raw)}</span>${gaugeHtml(d, r, { roomy: true, sr: false })}</div>`;
 }
 
 // The sentence on top (who, what, the outcome, where the eye lands), the proof beneath: the stat and the line, dice

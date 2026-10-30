@@ -3,6 +3,11 @@
 // margin, how far past it he held or how far short he fell, is the brightest thing on it. Shared by the chat's dice
 // widget (kit/dice.js) and the pane's Story column (story.js), so a roll reads one way in both. Staging is pure (no
 // DOM) and works from the payload `tt roll` prints (src/roll.mjs widgetData); only fitZones() touches a page.
+//
+// Mechanics are drawn, words are flavour (ui-principles): the line, the strain meter, which die counts and what each
+// term adds are pictures; each term's reason and its rule sit one level down, behind the tips (tips.js) that read
+// data-tip (a key of glossary.js), data-why (the reason, in words) and data-hl (the cells it made, data-k).
+import { icon, TERMS } from './glossary.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -91,8 +96,8 @@ export function resultOf(d, faces, frac = null, landed = null, push = 0) {
 export function geometry(d) {
   const stat = d.stat ?? null;
   const pos = [];
-  if (stat && stat.n > 0) pos.push({ role: 'stat', n: stat.n, why: statText(stat) });
-  for (const t of d.bar) if (t.n > 0) pos.push({ role: 'mod', n: t.n, why: t.why, kind: t.kind });
+  if (stat && stat.n > 0) pos.push({ role: 'stat', n: stat.n, why: statText(stat), k: 'stat' });
+  d.bar.forEach((t, i) => { if (t.n > 0) pos.push({ role: 'mod', n: t.n, why: t.why, kind: t.kind, k: `b${i}` }); });
   const P = pos.reduce((a, p) => a + p.n, 0);
   // load: the world's first, then his own negatives (a wound, a negative stat), each with whose it is
   const load = [
@@ -127,6 +132,9 @@ export const extrasOf = (m) => (m >= 5 ? Math.floor((m - 5) / 2) : 0);
 
 // The colour key of a zone: bands by name; a called shot's severity in the shooter's success colours, or in the loss
 // palette when it lands on him (critique.md, "the defending state").
+export const toneOf = (d, m) => tone(d, zoneOf(d, m));
+// A zone's glossary key: a wound on the body is not the wound a bar term names.
+const zoneTerm = (z) => (z.key === 'wound' ? 'hurt-wound' : z.key);
 function tone(d, z) {
   if (z === MISS) return 'clear';
   if (!HURTS.includes(z)) return z.key;
@@ -173,12 +181,15 @@ function hurtHead(d, s) {
 // What a push to margin `m` buys, in a few words, for the widget's offer: the zone it reaches, and past the top one,
 // its extras.
 export function buysText(d, m) {
+  const { head, extras } = buysParts(d, m);
+  return head + (extras ? ` + ${extras === 1 ? 'an extra' : `${word(extras)} extras`}` : '');
+}
+// The same, apart: the zone's words, how many extras (the offer draws them as stars), and the zone's colour key.
+export function buysParts(d, m) {
   const z = zoneOf(d, m);
   const extras = !d.defend || m >= 0 ? extrasOf(m) : 0;
-  const more = extras ? ` + ${extras === 1 ? 'an extra' : `${word(extras)} extras`}` : '';
-  if (HURTS.includes(z)) return hurtHead(d, z) + more;
-  if (d.defend) return `Avoided${z.key === 'cost' ? ', at a cost' : z.key === 'solid' ? ' cleanly' : ''}${more}`;
-  return z.word + more;
+  const head = HURTS.includes(z) ? hurtHead(d, z) : d.defend ? `Avoided${z.key === 'cost' ? ', at a cost' : z.key === 'solid' ? ' cleanly' : ''}` : z.word;
+  return { head, extras, tone: tone(d, z) };
 }
 
 // ---- the body a called shot aims at (rules/core.md: head, torso, arms, legs)
@@ -211,7 +222,7 @@ function bodySvg(d, r) {
   const state = r ? (r.severity ? `hit tone-${tone(d, r.severity)}` : 'missed') : 'aim';
   const body = PARTS.map((p) => {
     const [tag, attrs] = shapeOf(p);
-    return `<${tag} ${attrs} class="loc${p === part ? ` ${state}` : ''}"><title>${p}</title></${tag}>`;
+    return `<${tag} ${attrs} class="loc${p === part ? ` ${state}` : ''}" data-part="${p}"/>`;
   }).join('');
   const label = mine ? `your ${part}` : `${d.target?.name ? `${d.target.name}: ` : ''}${part}`;
   return `<figure class="tg-body${mine ? ' mine' : ''}" aria-hidden="true"><svg viewBox="0 0 48 78">${body}</svg><figcaption>${esc(label)}</figcaption></figure>`;
@@ -236,37 +247,122 @@ export function dieRoles(d) {
 // "Teo" for "Teo Rask" or "Teo, a cadet"; "the raider" whole.
 const shortName = (name) => (/^(the|a|an)\s/i.test(name) ? name : String(name).split(/[\s,]+/)[0]);
 
-// The line as its flag names it: the rung (or the person) and the load on it. A person has no number before the throw.
+/// A tip target's attributes (tips.js): its glossary key, its reason in words, the cells it made.
+const tipAttrs = (key, why = '', hl = '') => ` data-tip="${key}"${why ? ` data-why="${esc(why)}"` : ''}${hl ? ` data-hl="${hl}"` : ''}`;
+// A focusable one: a button whose label says in words what the picture shows.
+const tipButton = (cls, key, label, inner, why = '', hl = '') => `<button type="button" class="tg-tb ${cls}"${tipAttrs(key, why, hl)} aria-label="${esc(label)}">${inner}</button>`;
+
+// The line's flag: its icon and its rung (or the person); the rung's number, its reason and the load on it one level
+// down. A person's line has no number before the throw.
 function lineFlag(d, g, thrown) {
   const load = g.Lfull - g.base;
-  const net = load ? ` ${quarters(load)}` : '';
-  if (d.line.vs) return thrown ? `${d.line.vs} ${d.line.n}${net}` : d.line.vs;
-  return `${d.line.rung ?? 'line'} ${d.line.n}${net}`;
+  const net = load ? `; ${quarters(load)} load` : '';
+  if (d.line.vs) return { key: 'person', text: d.line.vs, why: `${d.line.vs}${thrown ? ` ${d.line.n}${net}` : ''}` };
+  const rung = d.line.rung ?? 'line';
+  return { key: 'line', text: rung, why: `${rung} ${d.line.n}${d.line.why ? `: ${d.line.why}` : ''}${net}` };
 }
 
-// The terms in words, each where it lives: his side, the line's, luck's.
-function chips(d, thrown) {
-  const kind = { expert: 'expertise', gear: 'gear he carries', prep: 'what he did to set it up', wound: 'a wound', called: 'a called shot', stat: 'his stat' };
-  const out = [];
+// A term's size drawn as the gauge draws it: a cell per whole point and a part-cell for a fraction, filled when it adds
+// to his bar, hatched when it loads the line (his own hurts in his colour), dotted when the world is in his favour.
+function miniCells(n, cls) {
+  const a = Math.abs(n);
+  const whole = Math.floor(a);
+  const f = a - whole;
+  return `<span class="mc ${cls}">${'<i></i>'.repeat(whole)}${f ? `<i class="p" style="--f:${f}"></i>` : ''}</span>`;
+}
+
+// What bears on the roll, each where it lives: his side (gear, preparation, expertise, his hurts), then the line's load.
+// Each is its kind's icon and its size in cells; its reason is one level down. Luck's second die and his condition are
+// drawn on the dice, the line's rung on its flag.
+function terms(d) {
+  const mine = d.bar.map((t, i) => {
+    const key = ['expert', 'gear', 'prep', 'wound'].includes(t.kind) ? t.kind : t.n < 0 ? 'wound' : 'prep';
+    const cls = t.n < 0 ? 'mine-load' : 'mine';
+    const size = quarters(t.n);
+    return tipButton(`tg-t ${cls}`, key, `${TERMS[key].name} ${size}: ${t.why}`, icon(TERMS[key].icon) + miniCells(t.n, cls), `${size} ${t.why}`, t.n < 0 ? 'lm' : `b${i}`);
+  });
+  const world = d.load.map((t) => {
+    const key = t.kind === 'called' ? 'called' : 'load';
+    const cls = t.n < 0 ? 'relief' : 'load';
+    const size = quarters(t.n);
+    return tipButton(`tg-t ${cls}`, key, `${t.n < 0 ? 'the world in your favour' : TERMS[key].name} ${size}: ${t.why}`, icon(TERMS[key].icon) + miniCells(t.n, cls), `${size} ${t.why}`, 'lw');
+  });
+  if (!mine.length && !world.length) return '';
+  return `<div class="tg-terms">${mine.length ? `<span class="tg-tgrp">${mine.join('')}</span>` : ''}${world.length ? `<span class="tg-tgrp line">${world.join('')}</span>` : ''}</div>`;
+}
+
+// His strain (system-v2 §6), drawn: his face for his state (alert, heavy-lidded, gone), six cells, and under them each
+// zone marked by the you dice it throws (one, two, three). A push on offer previews in outline; a push he made fills in
+// its own colour; each point past the end is a mark.
+const STRAIN_MAX = 6;
+const STRAIN_ZONES = [{ state: 'steady', from: 1, to: 2, dice: 1 }, { state: 'worn', from: 3, to: 5, dice: 2 }, { state: 'spent', from: 6, to: 6, dice: 3 }];
+const strainState = (n) => (n >= 6 ? 'spent' : n >= 3 ? 'worn' : 'steady');
+const diceGlyph = (n) => `<svg viewBox="0 0 ${n * 6 - 1} 5" aria-hidden="true">${Array.from({ length: n }, (_, i) => `<rect x="${i * 6}" width="5" height="5" rx="1"/>`).join('')}</svg>`;
+// The push he made: its strain after and its marks, from the offer's costs or, for a roll tt recorded, the result's.
+function strainMade(d, r) {
+  if (!r?.push || !d.condition) return null;
+  const cost = d.push?.find((p) => p.n === r.push)?.cost ?? d.result?.pushCost;
+  if (!Number.isInteger(cost)) return null;
+  const total = d.condition.n + cost;
+  return { after: Math.min(STRAIN_MAX, total), marks: Math.max(0, total - STRAIN_MAX) };
+}
+function strainHtml(d, r, preview) {
   const c = d.condition;
-  if (c && c.state !== 'steady') {
-    const die = c.state === 'spent' ? 'the worst of three you dice counts' : 'the worse of two you dice counts';
-    out.push(`<span class="c cond" title="${esc(`his condition: ${die}`)}">${esc(c.state)}${c.why ? ` · ${esc(c.why)}` : ''}</span>`);
-  }
-  for (const t of d.bar) out.push(`<span class="c ${t.n < 0 ? 'mine-load' : 'mine'}" title="${esc(kind[t.kind] ?? 'his side')}">${esc(quarters(t.n))} ${esc(t.why)}</span>`);
-  const why = d.line.vs ? `${d.line.vs}${thrown ? ` ${d.line.n}` : ''}` : [`${d.line.rung ?? 'line'} ${d.line.n}`, d.line.why].filter(Boolean).join(', ');
-  out.push(`<span class="c line" title="the line">${esc(why)}</span>`);
-  for (const t of d.load) out.push(`<span class="c load" title="${esc(t.kind === 'called' ? 'the aim: a called shot' : t.n < 0 ? 'the world, in his favour' : 'the world, on the line')}">${esc(quarters(t.n))} ${esc(t.why)}</span>`);
-  if (d.moment.dice > 1) out.push(`<span class="c luck" title="${d.moment.keep === 'worse' ? 'disadvantage: the worse moment die counts' : 'advantage: the better moment die counts'}">${d.moment.keep === 'worse' ? '−' : '+'} ${esc(d.moment.why || 'luck')}</span>`);
-  return out.join('');
+  if (!c || d.pc === false || !Number.isFinite(c.n)) return '';
+  const now = Math.max(0, Math.min(STRAIN_MAX, c.n));
+  const made = strainMade(d, r);
+  const next = made ?? (preview && Number.isInteger(preview.after) ? { after: preview.after, marks: preview.marks ?? 0, ghost: true } : null);
+  const to = next ? next.after : now;
+  const state = strainState(to);
+  const cells = Array.from({ length: STRAIN_MAX }, (_, j) => {
+    const k = j + 1;
+    const cls = [k <= now ? 'f' : k <= to ? (next.ghost ? 'g' : 'p') : '', STRAIN_ZONES.some((z) => z.from === k && k > 1) ? 'z' : ''].filter(Boolean).join(' ');
+    return `<i${cls ? ` class="${cls}"` : ''}></i>`;
+  }).join('');
+  const marks = next?.marks ? `<span class="tg-marks${next.ghost ? ' g' : ''}">${icon('mark').repeat(next.marks)}</span>` : '';
+  const zones = STRAIN_ZONES.map((z) => `<span${z.state === state ? ' class="on"' : ''} style="grid-column:${z.from}/${z.to + 1}">${diceGlyph(z.dice)}</span>`).join('');
+  const marked = (n) => (n ? `, and ${n === 1 ? 'a mark' : `${n} marks`}` : '');
+  const label = `Strain ${now} of ${STRAIN_MAX}, ${strainState(now)}${c.why ? ` (${c.why})` : ''}`
+    + (next ? `; ${next.ghost ? 'this push would make it' : 'the push made it'} ${to}, ${state}${marked(next.marks)}` : '');
+  return tipButton(`tg-strain${next ? (next.ghost ? ' ghosting' : ' pushed') : ''}${state !== strainState(now) ? ' turns' : ''}`, 'strain', label,
+    `${icon(state, 'face')}<span class="tg-meter"><span class="tg-mc">${cells}</span><span class="tg-mz">${zones}</span></span>${marks}`, c.why ?? '');
 }
 
-// The proof, as the 🎲 line has it: the kept dice, the net modifier (its quarter's rounding once thrown), the total,
-// what it needed.
+// The dice in their groups: his you dice (with his strain beside them, which sets how many), then the moment's. Under
+// each group its rule: whose they are and, when there are more than one, which counts (a mark pointing down: the
+// lowest; up: the highest). Thrown, the dice that count stand lit and the ones set aside lie dim, tipped and struck.
+function diceHtml(d, r, roles, strain) {
+  const thrown = Boolean(r);
+  const order = thrown ? [...r.counted].sort((a, b) => a - b) : [];
+  const die = (i) => {
+    const x = roles[i];
+    const n = thrown ? r.faces[i] : 0;
+    const counted = thrown ? r.counted.has(i) : true;
+    const luck = x.role === 'luck' ? tipAttrs(d.moment.keep === 'worse' ? 'dis' : 'adv', d.moment.why) : '';
+    return `<figure class="tg-die ${x.role}${thrown ? (counted ? ' kept' : ' dropped') : ''}${n ? '' : ' blank'}"${thrown && counted ? ` style="--i:${order.indexOf(i)}"` : ''}${luck}>`
+      + `<svg viewBox="0 0 26 26" role="img" aria-label="${esc(`${x.caption}: ${n || 'not thrown'}${thrown && !counted ? ', set aside' : ''}`)}">${dieFace(n)}</svg></figure>`;
+  };
+  const idx = (pick) => roles.map((_, i) => i).filter((i) => pick(roles[i]));
+  const npc = d.pc === false ? shortName(d.who) : '';
+  const who = npc ? `<span class="nm">${esc(npc)}</span>` : icon('you');
+  const state = d.condition?.state && d.condition.state !== 'steady' ? d.condition.state : 'worn';
+  const youRule = d.you > 1
+    ? tipButton('tg-rule many', state, `${d.you} you dice, the lowest counts`, `${who}${icon('low', 'keep')}`, d.condition?.why ?? '')
+    : tipButton('tg-rule', 'you', npc ? `${npc}'s die` : 'the you die', who);
+  const keep = d.moment.keep === 'worse' ? 'dis' : 'adv';
+  const momentRule = d.moment.dice > 1
+    ? tipButton('tg-rule many', keep, `two moment dice, the ${keep === 'dis' ? 'lower' : 'higher'} counts${d.moment.why ? `: ${d.moment.why}` : ''}`, `${icon('moment')}${icon(keep === 'dis' ? 'low' : 'high', 'keep')}`, d.moment.why ?? '')
+    : tipButton('tg-rule', 'moment', 'the moment die', icon('moment'));
+  return `<div class="tg-dice">${strain}<div class="tg-grp you"><div class="tg-row">${idx((x) => x.role === 'you').map(die).join('')}</div>${youRule}</div>`
+    + `<div class="tg-grp moment"><div class="tg-row">${idx((x) => x.role !== 'you').map(die).join('')}</div>${momentRule}</div></div>`;
+}
+
+// The sum, as the 🎲 line has it (one level down, in the verdict's tip): the kept dice, the net modifier (its quarter's
+// rounding once thrown), the total, the line.
 export function proofText(d, r) {
   const dice = r.kept.map((n) => `[${n}]`).join(' ');
   const mod = r.landed === null ? (d.mod ? ` ${quarters(d.mod)}` : '') : ` ${quarters(d.mod)}→${quarters(r.mod, '0')}`;
-  return `${dice}${mod}${r.push ? ` push +${r.push}` : ''} = ${r.total}, needed ${d.needed}`;
+  return `${dice}${mod}${r.push ? ` push +${r.push}` : ''} = ${r.total}, line ${d.needed}`;
 }
 
 // The summary a screen reader gets in place of the picture.
@@ -283,20 +379,24 @@ function spoken(d, g, r) {
 //   anim: 'pour' (dice pour into the bar, the line ticks, the word rises last) | 'push' (only his push arrives) | 'none'
 //   roomy: the pane's Story column
 //   act: the foot's right side (the widget's button, offer or status)
-//   ghost: a push on offer, previewed as outlined cells past the bar's end (the offer's hover or focus)
-export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '', ghost = 0 } = {}) {
+//   ghost: a push on offer ({ n, after, marks }, or its n), previewed as outlined cells past the bar's end, the zone
+//     they reach, and the strain it would leave (the offer's hover, focus or first tap)
+//   sr: false leaves out the summary for screen readers (the pane's Story column reads the roll line instead)
+export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '', ghost = 0, sr = true } = {}) {
+  const preview = typeof ghost === 'number' ? { n: ghost } : ghost ?? { n: 0 };
   const g = geometry(d);
   const thrown = Boolean(r);
   const roles = dieRoles(d);
   const N = g.N;
-  const cells = Array.from({ length: N + 1 }, () => ({ cls: [], i: null }));
+  const cells = Array.from({ length: N + 1 }, () => ({ cls: [], i: null, k: [] }));
   const put = (k, cls, i = null) => { if (k >= 1 && k <= N) { cells[k].cls.push(cls); if (i !== null) cells[k].i = i; } };
+  const key = (k, id) => { if (k >= 1 && k <= N) cells[k].k.push(id); }; // which term made the cell (a term's tip lights them)
 
   // rated cells: the stat, then his gear and preparation
   for (let k = 1; k <= g.whole; k++) {
     let at = 0;
     const piece = g.pos.find((p) => { at += p.n; return k - 0.5 < at; });
-    if (piece) put(k, piece.role);
+    if (piece) { put(k, piece.role); key(k, piece.k); }
   }
   // after the throw: the kept dice pour in, you then the moment, and the quarter's chance rides at the end
   let end = g.whole;
@@ -316,6 +416,7 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '',
   if (g.q) {
     qcell = end + 1;
     put(qcell, thrown ? (r.landed ? 'q in' : 'q out') : 'q', thrown ? order : null);
+    for (const p of g.pos) if (p.n % 1) key(qcell, p.k); // a fraction he brought rides here as its chance
     if (thrown && r.landed) { end += 1; if (cross === null && end >= g.E) cross = order; }
   }
   // his push: past the dice and the quarter, in its own colour, so what he bought reads apart from what he brought
@@ -327,20 +428,16 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '',
     end += r.push;
   }
   const total = end; // the gauge's bar end; its margin is tt's (resultOf), checked in the tests
-  if (thrown && ghost) for (let k = 1; k <= ghost; k++) put(total + k, 'ghost');
+  if (thrown && preview.n) for (let k = 1; k <= preview.n; k++) put(total + k, 'ghost');
   // load between the nominal line and the one that counts: the world's net (hatched, or dotted relief when it's in his
-  // favour), then his own negatives (hatched in his colour), each labelled by its size; the terms are in the chips
-  const world = g.load.filter((t) => !t.mine);
-  const mine = g.load.filter((t) => t.mine);
-  const W = world.reduce((a, t) => a + t.n, 0);
-  const M = mine.reduce((a, t) => a + t.n, 0);
+  // favour), then his own negatives (hatched in his colour). Each term is in the terms row, whose tips light these cells.
+  const W = g.load.filter((t) => !t.mine).reduce((a, t) => a + t.n, 0);
+  const M = g.load.filter((t) => t.mine).reduce((a, t) => a + t.n, 0);
   const loadSpans = [];
-  if (W) loadSpans.push({ a: Math.min(g.base, g.base + W), b: Math.max(g.base, g.base + W), cls: W < 0 ? 'relief' : 'ld', terms: world,
-    text: world.length === 1 && world[0].kind === 'called' ? `${quarters(W)} aim` : quarters(W) });
-  if (M) loadSpans.push({ a: g.base + W, b: g.base + W + M, cls: 'ld mine', terms: mine, text: quarters(-M) });
+  if (W) loadSpans.push({ a: Math.min(g.base, g.base + W), b: Math.max(g.base, g.base + W), cls: W < 0 ? 'relief' : 'ld', k: 'lw' });
+  if (M) loadSpans.push({ a: g.base + W, b: g.base + W + M, cls: 'ld mine', k: 'lm' });
   for (const s of loadSpans) {
-    s.cells = [];
-    for (let k = 1; k <= N; k++) if (k - 0.5 > s.a && k - 0.5 < s.b) { put(k, s.cls); s.cells.push(k); }
+    for (let k = 1; k <= N; k++) if (k - 0.5 > s.a && k - 0.5 < s.b) { put(k, s.cls); key(k, s.k); }
   }
   // the line's own cell, the gate, just left of the line: the bar fills it flush to make the line exactly
   if (!(d.line.vs && !thrown)) put(g.E, 'gate'); // a person's line has no exact place before the throw
@@ -399,15 +496,17 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '',
   }
 
   const flag = lineFlag(d, g, thrown);
-  const flagRight = g.E / N > (flag.length > 14 ? 0.4 : 0.6);
-  const capHtml = `<div class="tg-cap" title="${esc(d.stat ? `${statText(d.stat)}: his stat, the bar's start` : 'no stat')}"><b>${esc(d.stat ? d.stat.name : 'roll')}</b><span>${d.stat ? esc(d.stat.n < 0 ? `−${-d.stat.n}` : `+${d.stat.n}`) : ''} ▸</span></div>`;
-  const cellHtml = cells.slice(1).map((c, j) => `<i class="${c.cls.join(' ')}"${c.i !== null ? ` style="--i:${c.i}"` : ''}${j + 1 === qcell ? ` title="${esc(`the ${quarters(g.q).slice(1)}: a ${Math.round(g.q * 100)} in 100 chance of one more`)}"` : ''}></i>`).join('');
-  const labelled = loadSpans.filter((s) => s.cells.length);
-  const loadRow = labelled.length ? `<div class="tg-loadl">${labelled.map((s) => `<span class="${s.cls.replace('ld', '').trim()}" style="${span(s.cells[0], s.cells.length)}" title="${esc(s.terms.map((t) => `${quarters(t.mine ? -t.n : t.n)} ${t.why}`).join(' · '))}">${esc(s.text)}</span>`).join('')}</div>` : '';
+  const flagRight = g.E / N > (flag.text.length > 14 ? 0.4 : 0.6);
+  const capHtml = d.stat
+    ? tipButton('tg-cap', 'stat', `${statText(d.stat)}, your stat`, `<b>${esc(d.stat.name)}</b><span>${esc(d.stat.n < 0 ? `−${-d.stat.n}` : `+${d.stat.n}`)} ▸</span>`, statText(d.stat), 'stat')
+    : '<div class="tg-cap"><b>roll</b><span>▸</span></div>';
+  const cellHtml = cells.slice(1).map((c, j) => `<i class="${c.cls.join(' ')}"${c.k.length ? ` data-k="${c.k.join(' ')}"` : ''}${c.i !== null ? ` style="--i:${c.i}"` : ''}`
+    + `${j + 1 === qcell ? tipAttrs('quarter', `the ${quarters(g.q).slice(1)}: lands as one more ${Math.round(g.q * 100)} times in 100`) : ''}></i>`).join('');
+  const ghostZone = thrown && preview.n ? zoneAt(d, g, Math.max(1, total + preview.n)) : null;
   const zoneRow = zones.map((z, j) => {
     const near = focusAt >= 0 && Math.abs(j - focusAt) <= 1;
-    const cls = [`tone-${tone(d, z.z)}`, z.z === lit ? 'on' : '', j === focusAt ? 'focus' : near ? 'nb' : 'far', HURTS.includes(z.z) || !attackOf(d) || d.target?.pc ? '' : 'miss'].filter(Boolean).join(' ');
-    return `<div class="${cls}" style="${span(z.from, z.n)}" title="${esc(cap(z.z.zone))}"><span class="lg">${esc(z.z.zone)}</span><span class="sm">${esc(z.z.short)}</span></div>`;
+    const cls = [`tone-${tone(d, z.z)}`, z.z === lit ? 'on' : '', z.z === ghostZone && z.z !== lit ? 'ghost' : '', j === focusAt ? 'focus' : near ? 'nb' : 'far', HURTS.includes(z.z) || !attackOf(d) || d.target?.pc ? '' : 'miss'].filter(Boolean).join(' ');
+    return `<div class="${cls}" style="${span(z.from, z.n)}"${tipAttrs(zoneTerm(z.z))}><span class="lg">${esc(z.z.zone)}</span><span class="sm">${esc(z.z.short)}</span></div>`;
   }).join('');
   const lineAt = `--at:${g.E}`;
   const lineHtml = fuzzy
@@ -415,41 +514,34 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '',
     : `<div class="tg-line${cross !== null && anim === 'pour' ? ' tick' : ''}" style="${lineAt}${cross !== null ? `;--x:${cross}` : ''}"></div>${g.Lfull !== g.base && !d.line.vs ? `<div class="tg-line nominal" style="--at:${g.base}"></div>` : ''}`;
 
   const gauge = `<div class="tg-gauge" style="--n:${N}">
-<div class="tg-flag${flagRight ? ' r' : ''}" style="--at:${g.E}"><span title="${esc(d.line.why || d.line.vs || '')}">${esc(flag)}</span></div>
+<div class="tg-flag${flagRight ? ' r' : ''}" style="--at:${g.E}">${tipButton('tg-fl', flag.key, `the line: ${flag.why}`, `${icon(TERMS[flag.key].icon)}<span>${esc(flag.text)}</span>`, flag.why, 'lw')}</div>
 ${fb ? `<div class="tg-shape${thrown ? ' hollow' : ''}" aria-hidden="true">${shape}</div>` : ''}
 ${capHtml}<div class="tg-cells" aria-hidden="true">${cellHtml}</div>
-${loadRow}
 <div class="tg-zones${fuzzy ? ' fuzzy' : ''}" aria-hidden="true">${zoneRow}</div>
 ${lineHtml}
 </div>`;
 
-  // readout: before the throw the stat against the line and the forecast's word; after it, the band word and how far
-  let readout;
-  let body = d.called || d.hit ? bodySvg(d, r) : '';
+  // readout: before the throw, his read of the odds in a word; after it, the outcome. How far past or short, and the
+  // sum, are one level down (the gauge draws them).
+  let readout = '';
+  const body = d.called || d.hit ? bodySvg(d, r) : '';
   if (!thrown) {
-    readout = `<div class="tg-terms"><span class="st">${esc(d.stat ? statText(d.stat) : d.who)}</span><span class="vs">against</span><span class="ln">${esc(d.line.vs ?? `${d.line.rung ?? 'line'} ${d.line.n}`)}</span></div>`
-      + (d.forecast?.word ? `<div class="tg-sol"><span>solution</span><b>${esc(d.forecast.word)}</b></div>` : '');
+    if (d.forecast?.word) readout = tipButton('tg-sol', 'forecast', `your read: ${d.forecast.word}`, `${icon('forecast')}<b>${esc(d.forecast.word)}</b>`);
   } else {
     const v = verdict(d, r);
-    readout = `<div class="tg-verdict tone-${v.tone}"><div class="tg-band">${esc(v.head)}</div><div class="tg-margin">${esc(v.sub)}</div></div>`;
+    const sum = `${proofText(d, r)}${r.landed === null ? '' : ` (the ${quarters(d.mod - Math.floor(d.mod)).slice(1)} ${r.landed ? 'came in' : 'stayed out'})`}`;
+    readout = tipButton(`tg-verdict tone-${v.tone}`, zoneTerm(zoneOf(d, r.margin)), `${v.head}: ${v.sub}`, `<span class="tg-band">${esc(v.head)}</span>`, `${v.sub}. ${sum}`);
   }
-
-  const dice = roles.map((x, i) => {
-    const n = thrown ? r.faces[i] : 0;
-    const counted = thrown ? r.counted.has(i) : true;
-    return `<figure class="tg-die ${x.role}${thrown && !counted ? ' dropped' : ''}${n ? '' : ' blank'}"${thrown && counted ? ` style="--i:${[...r.counted].sort((a, b) => a - b).indexOf(i)}"` : ''}><svg viewBox="0 0 26 26" role="img" aria-label="${esc(`${x.caption}: ${n || 'not thrown'}`)}">${dieFace(n)}</svg><figcaption>${esc(x.caption)}${thrown && !counted ? '<em> · set aside</em>' : ''}</figcaption></figure>`;
-  }).join('');
-  const proof = thrown ? `<div class="tg-proof">${esc(proofText(d, r))}${r.landed === null ? '' : `<span class="${r.landed ? 'in' : 'out'}"> · the ${esc(quarters(d.mod - Math.floor(d.mod)).slice(1))} ${r.landed ? 'came in' : 'stayed out'}</span>`}</div>` : '';
 
   const bandKey = thrown ? verdict(d, r).tone : '';
   const steps = order + (g.q ? 1 : 0);
   return `<div class="tg${roomy ? ' roomy' : ''}${anim === 'pour' && thrown ? ' pour' : ''}${anim === 'push' && thrown ? ' pushing' : ''}${onHim(d) ? ' defend' : ''}" data-phase="${thrown ? 'result' : 'before'}" data-line="${g.E}"${thrown ? ` data-end="${total}"` : ''}${bandKey ? ` data-tone="${bandKey}"` : ''} style="--steps:${steps}">
-<p class="tg-sr">${esc(spoken(d, g, r))}</p>
-<div class="tg-head" aria-hidden="true"><span class="tg-who">${esc(d.who)}</span><span class="tg-what">${esc(d.what)}</span><span class="tg-id">load test${d.id ? ` · ${esc(d.id)}` : ''}</span></div>
-<div class="tg-read" aria-hidden="true"><div class="tg-readl">${readout}</div>${body}</div>
-<div class="tg-chips" aria-hidden="true">${chips(d, thrown)}</div>
+${sr ? `<p class="tg-sr">${esc(spoken(d, g, r))}</p>` : ''}
+<div class="tg-head" aria-hidden="true"><span class="tg-who">${esc(d.who)}</span><span class="tg-what">${esc(d.what)}</span></div>
+<div class="tg-read"><div class="tg-readl">${readout}</div>${body}</div>
+${terms(d)}
 ${gauge}
-<div class="tg-foot"><div class="tg-dice" aria-hidden="true">${dice}</div>${proof}<div class="tg-act">${act}</div></div>
+<div class="tg-foot">${diceHtml(d, r, roles, strainHtml(d, r, preview))}<div class="tg-act">${act}</div></div>
 </div>`;
 }
 
@@ -492,23 +584,23 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg[data-tone=disaster]{--band:var(--disaster)}.tg[data-tone=failure]{--band:var(--failure)}.tg[data-tone=near]{--band:var(--near)}.tg[data-tone=cost]{--band:var(--cost)}
 .tg[data-tone=solid]{--band:var(--solid)}.tg[data-tone=exceptional]{--band:var(--exceptional)}.tg[data-tone=clear]{--band:var(--clear)}
 .tg[data-tone=hurt-graze]{--band:var(--hurt-graze)}.tg[data-tone=hurt-wound]{--band:var(--hurt-wound)}.tg[data-tone=hurt-maimed]{--band:var(--hurt-maimed)}.tg[data-tone=hurt-destroyed]{--band:var(--hurt-destroyed)}
+.tg-tb{all:unset;box-sizing:border-box;cursor:help;-webkit-tap-highlight-color:transparent}
+.tg-tb:focus-visible{outline:2px solid var(--stat);outline-offset:2px;border-radius:4px}
+.tg .ti{display:block;flex:none;width:14px;height:14px}
+.tg [data-tip]{cursor:help}
 .tg-sr{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 .tg-head{display:flex;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
 .tg-who{font:600 11px/1.2 var(--disp);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .tg-what{flex:1 1 50%;min-width:0;font-size:15px;color:var(--ink)}
-.tg-id{margin-left:auto;font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:3px 6px;border:1px solid var(--edge);border-radius:3px}
 
-.tg-read{display:flex;align-items:flex-end;gap:8px 16px;margin:10px 0 4px;min-height:46px}
+.tg-read{display:flex;align-items:flex-end;gap:8px 16px;margin:10px 0 4px;min-height:34px}
 .tg-readl{flex:1;min-width:0;display:flex;align-items:flex-end;flex-wrap:wrap;gap:6px 18px}
-.tg-terms{font:600 22px/1.15 var(--disp);letter-spacing:.01em}
-.tg-terms .st{color:var(--stat)}.tg-terms .vs{font:400 14px var(--font-sans,system-ui);color:var(--dim);margin:0 7px}.tg-terms .ln{color:var(--ink)}
-.tg-sol{margin-left:auto;text-align:right;line-height:1}
-.tg-sol span{display:block;font:600 11px/1 var(--disp);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
-.tg-sol b{font:600 20px/1 var(--disp);color:var(--ink);letter-spacing:.02em}
-.tg-verdict{--tone:var(--band)}
+.tg-sol{display:flex;align-items:center;gap:8px;color:var(--ink)}
+.tg-sol .ti{width:18px;height:18px;color:var(--dim)}
+.tg-sol b{display:block;font:600 22px/1.1 var(--disp);letter-spacing:.01em}.tg-sol b::first-letter{text-transform:uppercase}
+.tg-verdict{--tone:var(--band);display:block}
 .tg-band{font:700 28px/1.05 var(--disp);color:var(--tone);letter-spacing:.005em;text-shadow:0 0 14px color-mix(in srgb,var(--tone) 45%,transparent)}
-.tg-margin{margin-top:3px;font-size:14px;color:var(--ink);opacity:.86}
 
 .tg-body{margin:0;display:flex;flex-direction:column;align-items:center;gap:2px;flex:none}
 .tg-body svg{width:34px;height:56px;overflow:visible}
@@ -519,22 +611,27 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-body figcaption{font-size:11px;color:var(--dim);white-space:nowrap}
 .tg.defend .tg-body svg{width:40px;height:66px}
 
-.tg-chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin:4px 0 0;font-size:12.5px;line-height:1.5;color:var(--dim)}
-.tg-chips .c{padding:0 7px;border:1px solid var(--edge);border-radius:4px;max-width:100%;overflow-wrap:anywhere}
-.tg-chips .mine{border-left:3px solid var(--mod)}
-.tg-chips .mine-load{border-left:3px solid var(--mod);background:repeating-linear-gradient(135deg,rgba(124,195,236,.12) 0 2px,transparent 2px 6px)}
-.tg-chips .line{color:var(--ink);border-color:color-mix(in srgb,var(--ink) 30%,var(--edge))}
-.tg-chips .load{border-style:dashed}
-.tg-chips .luck{border-color:color-mix(in srgb,var(--luck) 60%,var(--edge));color:var(--ink)}
-.tg-chips .cond{border-color:color-mix(in srgb,var(--you-cell) 70%,var(--edge));color:var(--you)}
-.tg-chips [title]{cursor:help}
+
+.tg-terms{display:flex;flex-wrap:wrap;gap:6px 12px;margin:6px 0 0}
+.tg-tgrp{display:flex;flex-wrap:wrap;gap:6px}
+.tg-tgrp.line{padding-left:12px;border-left:1px solid var(--edge)}
+.tg-t{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border:1px solid var(--edge);border-radius:5px;color:var(--dim)}
+.tg-t:hover,.tg-t:focus-visible{border-color:color-mix(in srgb,var(--ink) 45%,var(--edge));color:var(--ink)}
+.tg-t.mine,.tg-t.mine-load{color:var(--mod)}
+.mc{display:inline-flex;gap:2px}
+.mc i{display:block;width:7px;height:12px;border-radius:1.5px;background-repeat:no-repeat}
+.mc.mine i{background-image:linear-gradient(color-mix(in srgb,var(--mod) 75%,var(--cell)),color-mix(in srgb,var(--mod) 75%,var(--cell)))}
+.mc.load i,.mc.mine-load i{background-image:repeating-linear-gradient(135deg,currentColor 0 1.5px,transparent 1.5px 4px);box-shadow:inset 0 0 0 1px currentColor}
+.mc.relief i{outline:1px dotted currentColor;outline-offset:-1px}
+.mc i.p{background-size:calc(var(--f) * 100%) 100%;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 60%,transparent)}
 
 /* the gauge: one grid, the stat cap in its own column, then a column per cell */
 .tg-gauge{position:relative;margin:14px 0 2px;display:grid;grid-template-columns:auto repeat(var(--n),minmax(0,1fr));column-gap:2px}
 .tg-gauge>*{grid-column:2/-1}
-.tg-flag{position:relative;height:16px;grid-row:1}
-.tg-flag span{position:absolute;bottom:2px;left:calc(var(--at) * (100% + 2px) / var(--n) - 2px);white-space:nowrap;font:600 11px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);padding:0 5px}
-.tg-flag.r span{transform:translateX(-100%)}
+.tg-flag{position:relative;height:18px;grid-row:1}
+.tg-flag .tg-fl{position:absolute;bottom:3px;left:calc(var(--at) * (100% + 2px) / var(--n) - 2px);display:flex;align-items:center;gap:5px;white-space:nowrap;font:600 11px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);padding:0 5px 0 3px}
+.tg-flag .tg-fl .ti{width:13px;height:13px}
+.tg-flag.r .tg-fl{transform:translateX(-100%);padding:0 3px 0 5px}
 .tg-shape{grid-row:2;display:grid;grid-template-columns:subgrid;height:24px;align-items:end}
 .tg-shape i{height:calc(var(--h) * 100%);background:color-mix(in srgb,var(--tone) 30%,transparent);border-top:2px solid var(--tone);transition:background .4s,border-color .4s,opacity .4s}
 .tg-shape.hollow i{background:transparent;border-top-color:color-mix(in srgb,var(--tone) 45%,transparent);border-left:1px solid color-mix(in srgb,var(--tone) 18%,transparent);border-right:1px solid color-mix(in srgb,var(--tone) 18%,transparent)}
@@ -564,17 +661,16 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-cells i.short::after{background:repeating-linear-gradient(135deg,var(--band) 0 2px,transparent 2px 5px);opacity:.75}
 .tg-cells i.ghost{background:color-mix(in srgb,var(--push) 30%,var(--cell));border:1px dashed var(--push);box-shadow:0 0 6px color-mix(in srgb,var(--push) 40%,transparent)}
 .tg-cells i.ghost::after{opacity:.2}
+.tg-cells i.hl{box-shadow:0 0 0 2px var(--ink);z-index:2}
 .tg-cells i.end::before{content:"";position:absolute;inset:-6px -5px;z-index:2;pointer-events:none;--c:var(--band);
 background:linear-gradient(var(--c),var(--c)) 0 0/7px 2px,linear-gradient(var(--c),var(--c)) 0 0/2px 7px,linear-gradient(var(--c),var(--c)) 100% 0/7px 2px,linear-gradient(var(--c),var(--c)) 100% 0/2px 7px,
 linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(--c)) 0 100%/2px 7px,linear-gradient(var(--c),var(--c)) 100% 100%/7px 2px,linear-gradient(var(--c),var(--c)) 100% 100%/2px 7px;background-repeat:no-repeat;filter:drop-shadow(0 0 3px var(--c))}
-.tg-loadl{grid-row:4;display:grid;grid-template-columns:subgrid;margin-top:3px;height:16px}
-.tg-loadl span{font:500 11px/15px var(--mono);text-align:center;white-space:nowrap;overflow:visible;color:var(--dim);padding:0;border:1px solid currentColor;border-top:none;border-radius:0 0 3px 3px;opacity:.9;min-width:0;cursor:help}
-.tg-loadl span.mine{color:var(--mod)}.tg-loadl span.relief{border-style:dotted}
 .tg-zones{grid-row:5;display:grid;grid-template-columns:subgrid;margin-top:5px}
 .tg-zones div{position:relative;border-top:3px solid color-mix(in srgb,var(--tone) 50%,transparent);padding:3px 1px 0;font-size:11px;line-height:1.2;color:var(--dim);text-align:center;white-space:nowrap;min-width:0;overflow:hidden}
 .tg-zones .sm{display:none}.tg-zones .use-sm .lg{display:none}.tg-zones .use-sm .sm{display:inline}.tg-zones .hide span{visibility:hidden}
 .tg-zones div.on{border-top-color:var(--tone);color:var(--tone);font-weight:600;z-index:1;overflow:visible}
 .tg-zones .miss{border-top-style:dotted}
+.tg-zones div.ghost{border-top:3px dashed var(--push);color:var(--push);z-index:1;overflow:visible}.tg-zones div.ghost span{visibility:visible}
 .tg[data-phase=result] .tg-zones div:not(.on){color:var(--faint)}
 .tg-zones.fuzzy div{border-top-color:transparent;background:linear-gradient(color-mix(in srgb,var(--tone) 40%,transparent),color-mix(in srgb,var(--tone) 40%,transparent)) top/100% 3px no-repeat;filter:blur(.4px)}
 .tg-line{grid-column:2/-1;grid-row:2/4;align-self:stretch;width:0;margin-left:calc(var(--at) * (100% + 2px) / var(--n) - 2px);border-left:2px solid var(--ink);pointer-events:none;z-index:3;box-shadow:0 0 6px rgba(219,227,236,.35)}
@@ -582,9 +678,34 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg-line.fuzzy{margin-left:0;border:0;width:auto;background:linear-gradient(90deg,transparent,rgba(219,227,236,.22) 35%,rgba(219,227,236,.32) 50%,rgba(219,227,236,.22) 65%,transparent);box-shadow:none}
 
 .tg-foot{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--edge)}
-.tg-dice{display:flex;gap:12px;align-items:flex-start}
-.tg-die{margin:0;display:flex;flex-direction:column;align-items:center;gap:4px;width:56px;transition:opacity .3s}
-.tg-die svg{width:38px;height:38px;overflow:visible}
+.tg-dice{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-start}
+.tg-grp{display:flex;flex-direction:column;align-items:center;gap:6px}
+.tg-row{display:flex;gap:8px}
+.tg-rule{position:relative;display:flex;align-items:center;justify-content:center;gap:3px;min-height:16px;align-self:stretch;color:var(--dim)}
+.tg-grp.you .tg-rule{color:var(--you)}.tg-grp.moment .tg-rule{color:var(--moment)}
+.tg-rule.many{border-top:1.5px solid currentColor;padding-top:3px;margin-top:2px}
+.tg-rule.many::before,.tg-rule.many::after{content:"";position:absolute;top:-5px;width:1.5px;height:5px;background:currentColor}
+.tg-rule.many::before{left:0}.tg-rule.many::after{right:0}
+.tg-rule .keep{width:11px;height:11px}
+.tg-rule .nm{font:600 11px/1 var(--disp);letter-spacing:.12em;text-transform:uppercase}
+.tg-strain{display:flex;align-items:center;gap:7px;color:var(--you);align-self:center}
+.tg-strain .face{width:26px;height:26px}
+.tg-strain.ghosting.turns .face{color:var(--push)}
+.tg-meter{display:flex;flex-direction:column;gap:3px}
+.tg-mc,.tg-mz{display:grid;grid-template-columns:9px 9px 12px 9px 9px 12px;column-gap:2px}
+.tg-mc i{height:14px;border-radius:2px;background:var(--cell);border:1px solid var(--cell-edge)}
+.tg-mc i.z{margin-left:3px}
+.tg-mc i.f{background:color-mix(in srgb,var(--you-cell) 80%,var(--cell));border-color:transparent}
+.tg-mc i.p{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--push) 75%,var(--cell)) 0 3px,color-mix(in srgb,var(--push) 52%,var(--cell)) 3px 5px);border-color:transparent}
+.tg-mc i.g{background:color-mix(in srgb,var(--push) 28%,var(--cell));border:1px dashed var(--push)}
+.tg-mz span{display:flex;justify-content:center;color:var(--faint)}
+.tg-mz span.on{color:var(--you)}
+.tg-strain.ghosting.turns .tg-mz span.on{color:var(--push)}
+.tg-mz svg{display:block;height:5px;width:auto;fill:currentColor}
+.tg-marks{display:flex;flex-wrap:wrap;max-width:66px;gap:1px;color:var(--near)}.tg-marks .ti{width:12px;height:12px}
+.tg-marks.g{color:var(--push)}
+.tg-die{position:relative;margin:0;display:flex;transition:opacity .3s}
+.tg-die svg{width:36px;height:36px;overflow:visible}
 .tg-die rect{fill:var(--cell);stroke:var(--faint);stroke-width:1}
 .tg-die circle{fill:var(--glass)}
 .tg-die.you rect{fill:var(--you);stroke:none}
@@ -592,13 +713,10 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg-die.luck rect{fill:color-mix(in srgb,var(--luck) 70%,var(--moment))}
 .tg-die.blank rect{fill:transparent;stroke:var(--faint);stroke-dasharray:3 2}
 .tg-die.you.blank rect{stroke:var(--you)}.tg-die.moment.blank rect{stroke:var(--moment)}.tg-die.luck.blank rect{stroke:var(--luck)}
-.tg-die figcaption{font-size:11px;line-height:1.2;color:var(--dim);text-align:center;max-width:96px}
-.tg-die.luck{width:auto;max-width:104px}
-.tg-die.dropped{opacity:.45}.tg-die.dropped svg{transform:translateY(4px) rotate(-9deg)}
-.tg-die em{font-style:normal;color:var(--faint)}
+.tg-die.dropped svg{opacity:.4;transform:translateY(5px) rotate(-12deg)}
+.tg-die.dropped::after{content:"";position:absolute;left:-3px;right:-3px;top:58%;height:2px;border-radius:1px;background:var(--dim);transform:rotate(-38deg)}
+.tg-die.kept svg{transform:translateY(-2px);filter:drop-shadow(0 2px 5px rgba(0,0,0,.5))}
 .tg-die.tumble svg{animation:tg-tumble .24s linear infinite}
-.tg-proof{font:500 12.5px/1.4 var(--mono);color:var(--dim);font-variant-numeric:tabular-nums}
-.tg-proof .in{color:var(--quarter)}.tg-proof .out{color:var(--faint)}
 .tg-act{margin-left:auto;display:flex;align-items:center;gap:10px}
 .tg-throw{font:700 12px/1 var(--disp);letter-spacing:.18em;text-transform:uppercase;color:var(--glass);background:var(--ink);border:0;border-radius:6px;padding:11px 18px;cursor:pointer;box-shadow:0 0 0 1px var(--ink),0 0 14px rgba(219,227,236,.18)}
 .tg-throw small{display:block;margin-top:4px;font:500 11px/1 var(--mono);letter-spacing:.02em;text-transform:none;opacity:.7}
@@ -611,17 +729,36 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg-status code{font:12px var(--mono);color:var(--ink);background:var(--cell);padding:2px 6px;border-radius:3px;user-select:all;overflow-wrap:anywhere}
 .tg-act:has(.tg-send),.tg-act:has(.tg-offer){flex-basis:100%;margin-left:0}
 .tg-offer{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;width:100%}
-.tg-offer>p{flex-basis:100%;margin:0 0 2px;font-size:12.5px;color:var(--dim)}
 .tg-offer button{font:inherit;text-align:left;cursor:pointer;border-radius:6px;padding:7px 12px;line-height:1.25;min-width:0}
 .tg-offer .tg-take{font:700 12px/1 var(--disp);letter-spacing:.16em;text-transform:uppercase;color:var(--glass);background:var(--ink);border:0;padding:10px 16px}
 .tg-offer .tg-push{background:none;color:var(--ink);border:1px solid color-mix(in srgb,var(--push) 55%,var(--edge))}
 .tg-offer .tg-push:hover,.tg-offer .tg-push:focus-visible{background:color-mix(in srgb,var(--push) 12%,transparent);border-color:var(--push)}
-.tg-offer .tg-push b{font:700 14px/1 var(--disp);color:var(--push);margin-right:6px}
-.tg-offer .tg-push small{display:block;margin-top:3px;font-size:11.5px;color:var(--dim)}.tg-offer .tg-push small.mark{color:var(--near)}
+.tg-offer .tg-take{display:flex;align-items:center;gap:7px}.tg-offer .tg-take .ti{width:14px;height:14px}
+.tg-push .gain{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px}
+.tg-push .gain .ti{color:var(--push)}
+.tg-push .gain b{font:700 15px/1 var(--disp);color:var(--push);margin-right:4px}
+.tg-push .to{font-size:13.5px;color:var(--tone);display:flex;align-items:center;gap:3px}.tg-push .to .ti{color:var(--tone);width:11px;height:11px}
+.tg-push .to .xs{display:flex;gap:1px;margin-left:3px}
+.tg-push .cost{display:flex;align-items:center;gap:5px;margin-top:5px;font:600 12px/1 var(--mono);color:var(--you)}
+.tg-push .cost .mk{display:flex;align-items:center;gap:3px;margin-left:6px;color:var(--near)}
+.tg-push .again{display:none;margin-top:5px;font-size:11px;color:var(--push)}.tg-push.armed{border-color:var(--push);background:color-mix(in srgb,var(--push) 14%,transparent)}.tg-push.armed .again{display:block}
 .tg-offer button:focus-visible{outline:2px solid var(--stat);outline-offset:2px}
 .tg-send{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.tg-send code{display:block;margin:4px 0 6px;line-height:1.45}
 .tg-send.bad>span{flex-basis:100%}.tg-send details{font-size:12px;color:var(--faint)}.tg-send details[open]{flex-basis:100%}.tg-send summary{cursor:pointer;color:var(--dim)}.tg-send summary:focus-visible{outline:2px solid var(--stat);outline-offset:2px}
 .tg-status button{font:inherit;font-size:11px;background:none;border:1px solid var(--edge);border-radius:4px;color:var(--dim);padding:2px 8px;cursor:pointer}
+
+/* the tips (tips.js): a line on hover, focus or tap; a popout on click; both inside the box, which the chat's frame clips */
+.tg-tip,.tg-pop{position:absolute;z-index:30;box-sizing:border-box;width:max-content;background:#1a2531;color:var(--ink);border:1px solid #33475c;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.5);font:12.5px/1.4 var(--font-sans,system-ui,sans-serif);text-align:left;letter-spacing:normal;text-transform:none}
+.tg-tip{padding:6px 9px;pointer-events:none;animation:tg-fade .12s both}
+.tg-tip-h{display:flex;gap:6px;align-items:flex-start}.tg-tip-h .ti{margin-top:2px;color:var(--dim)}
+.tg-tip-l{display:block;margin-top:2px;color:var(--dim)}
+.tg-tip-more{display:block;margin-top:3px;font-size:11px;color:var(--faint)}
+.tg-pop{padding:9px 12px 10px}
+.tg-pop-h{display:flex;align-items:center;gap:7px}.tg-pop-h b{font:600 13px/1.2 var(--disp);letter-spacing:.04em;flex:1}
+.tg-pop-x{all:unset;cursor:pointer;color:var(--dim);font-size:16px;line-height:1;padding:0 3px;border-radius:3px}.tg-pop-x:focus-visible{outline:2px solid var(--stat)}
+.tg-pop p{margin:6px 0 0;color:var(--dim)}.tg-pop .tg-pop-why{color:var(--ink)}
+.tg-term{display:inline-flex;align-items:center;gap:3px;color:var(--ink);border-bottom:1px dotted var(--faint);cursor:help}.tg-term .ti{width:12px;height:12px}
+.tg-term:focus-visible{outline:2px solid var(--stat);outline-offset:1px}
 
 /* the arrival: dice pour into the bar, the line ticks when crossed, the margin locks on, the band word rises last */
 .tg.pour .tg-cells i.pour{animation:tg-fill .16s both;animation-delay:calc(var(--i) * 45ms + 120ms)}
@@ -631,8 +768,7 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg.pour .tg-cells i.end::before{animation:tg-bracket .45s cubic-bezier(.2,.8,.3,1.2) both;animation-delay:calc(var(--steps) * 45ms + 420ms)}
 .tg.pour .tg-shape .land{animation:tg-fade .4s both;animation-delay:calc(var(--steps) * 45ms + 420ms)}
 .tg.pour .tg-verdict,.tg.pour .tg-body .hit{animation:tg-rise .5s both;animation-delay:calc(var(--steps) * 45ms + 560ms)}
-.tg.pour .tg-proof{animation:tg-fade .3s both;animation-delay:calc(var(--steps) * 45ms + 700ms)}
-.tg.pour .tg-die:not(.dropped) svg{animation:tg-pulse .5s both;animation-delay:calc(var(--i) * 300ms + 60ms)}
+.tg.pour .tg-die.kept svg{animation:tg-pulse .5s both;animation-delay:calc(var(--i) * 300ms + 60ms)}
 .tg.pour .tg-cells i.push{animation:tg-fill .16s both;animation-delay:calc(var(--i) * 45ms + 120ms)}
 .tg.pushing .tg-cells i.push{animation:tg-fill .3s both}.tg.pushing .tg-verdict,.tg.pushing .tg-body .hit{animation:tg-rise .45s both .2s}
 .tg.pushing .tg-cells i.head,.tg.pushing .tg-cells i.rim{animation:tg-lock .35s both .15s}
@@ -654,16 +790,15 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 /* a narrow screen: the zone in focus and its neighbours only; the button full width */
 @container (max-width:480px){
   .tg{padding:10px 12px}
-  .tg-terms{font-size:19px}.tg-band{font-size:24px}.tg-sol b{font-size:17px}
+  .tg-band{font-size:24px}.tg-sol b{font-size:19px}
   .tg-gauge{column-gap:1px}
   .tg-line{margin-left:calc(var(--at) * (100% + 1px) / var(--n) - 1.5px)}
   .tg-flag span{left:calc(var(--at) * (100% + 1px) / var(--n) - 1.5px)}
   .tg-zones div.far span{visibility:hidden}
-  .tg-loadl{visibility:hidden;height:4px}
   .tg-act{margin-left:0;width:100%}
   .tg-throw{flex:1}
-  .tg-offer button{flex:1 1 100%}
-  .tg-die{width:48px}
-  .tg-id{margin-left:0}
+  .tg-offer .tg-take{flex:1 1 100%}.tg-offer .tg-push{flex:1 1 40%}
+  .tg-dice{gap:12px 14px}.tg-row{gap:6px}.tg-die svg{width:32px;height:32px}
+  .tg-tgrp.line{padding-left:0;border-left:0}
 }
 `;

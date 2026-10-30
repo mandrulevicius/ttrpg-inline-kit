@@ -2,7 +2,8 @@
 // prints (src/roll.mjs widgetData): every term with its reason, the proof's two numbers (`mod`, the net modifier
 // against the whole line, in quarters; `needed`, the whole line), the dice by source, the forecast, and for a roll tt
 // threw itself (`--show`), the result. The picture is the Margin gauge (pane/gauge.js), shared with the pane's story.
-import { buysText, esc, extrasOf, gaugeHtml, quarters, resultOf, zoneOf } from '../pane/gauge.js';
+import { buysParts, buysText, esc, extrasOf, gaugeHtml, quarters, resultOf, zoneOf } from '../pane/gauge.js';
+import { icon } from '../pane/glossary.js';
 
 export { esc, gaugeHtml, resultOf };
 
@@ -51,19 +52,30 @@ export function pushOffers(d, faces, frac = null) {
     const m = base.margin + p.n;
     if (tier(m) === last) continue;
     last = tier(m);
-    out.push({ ...p, buys: buysText(d, m) });
+    out.push({ ...p, buys: buysText(d, m), ...buysParts(d, m) });
     if (out.length === 3) break;
   }
   return out;
 }
 
-// The offer, in the widget's foot: take the throw, or one of the pushes, each naming what it buys and the strain after.
+// The offer, in the widget's foot: take the throw, or a push, each drawn as what it changes: what it adds to the bar and
+// the zone that reaches, the strain it costs and any marks past the end (ui-principles, "An option says what it
+// changes"). No sentence introduces them. A push's words are one level down (its tip) and whole for a screen reader.
+const plural = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
 export function offerHtml(offers) {
-  const strain = (p) => `strain ${p.after} · ${p.state}${p.marks ? `, ${p.marks === 1 ? 'a mark' : `${p.marks} marks`}` : ''}`;
-  return `<div class="tg-offer" role="group" aria-label="Take the throw, or push it"><p>Take it, or push: a push costs strain.</p>`
-    + '<button type="button" class="tg-take" data-push="0">Take it</button>'
-    + offers.map((p) => `<button type="button" class="tg-push" data-push="${p.n}"><b>+${p.n}</b>${esc(p.buys)}<small${p.marks ? ' class="mark"' : ''}>${esc(strain(p))}</small></button>`).join('')
-    + '</div>';
+  const push = (p) => {
+    const cost = p.cost ?? null;
+    const extras = p.extras ? `<span class="xs">${icon('extra').repeat(p.extras)}</span>` : '';
+    const marks = p.marks ? `, and ${plural(p.marks, 'a mark', 'marks')} past your limit` : '';
+    const line = `+${p.n} to your total${cost !== null ? `, for ${cost} strain` : ''}${p.marks ? ` and ${plural(p.marks, 'a mark', 'marks')}` : ''}`;
+    const label = `Push +${p.n}: ${p.buys}${cost !== null ? `; costs ${cost} strain` : ''}, leaving you ${p.state}${marks}`;
+    return `<button type="button" class="tg-push" data-push="${p.n}" data-act data-tip="push" data-line="${esc(line)}" aria-label="${esc(label)}">`
+      + `<span class="gain">${icon('push')}<b>+${p.n}</b><span class="to tone-${p.tone ?? ''}">${esc(p.head ?? p.buys)}${extras}</span></span>`
+      + `<span class="cost">${cost !== null ? `${icon('strain')}+${cost}` : esc(p.state)}${p.marks ? `<span class="mk">${icon('mark')}${p.marks > 1 ? `×${p.marks}` : ''}</span>` : ''}</span>`
+      + '<span class="again">tap again to push</span></button>';
+  };
+  return `<div class="tg-offer" role="group" aria-label="Take the throw, or push it">`
+    + `<button type="button" class="tg-take" data-push="0">${icon('take')}Take it</button>${offers.map(push).join('')}</div>`;
 }
 
 // What the widget says about its line once thrown. The chat's sendPrompt sends it as his own message when the chat is

@@ -5,13 +5,16 @@
 //   <script type="module" src="<kit base>kit/dice.js"></script>
 // One click throws the you die(s), the moment die(s) and the quarter's chance (crypto-random), so the dice are final at
 // the throw: they tumble and pour into the bar, the line ticks when crossed, the band word rises last. Then the push
-// offer (v2 §6): "Take it", or a push that buys something new, previewed on the gauge as he points at it. His choice
+// offer (v2 §6): "Take it", or a push that buys something new, previewed on the gauge and his strain as he points at it (on
+// touch, the first tap previews and the second pushes). Every term's reason and rule is one level down, in the tips
+// pane/tips.js draws inside the widget. His choice
 // goes back through sendPrompt with the exact `tt roll --id … --dice … --frac … --push …`; a throw with nothing to
 // buy goes at once. tt refuses a second result for an id: a widget drawn again after a chat reload would offer the
 // button again, so this one remembers its throw (and whether its choice went) where it can. A roll tt threw itself (`tt roll … --show`) arrives landed, with no button. The
 // element's own text, on the same dark screen, shows until this module runs, or if it never loads.
 import { addStyle } from './style.js';
 import { GAUGE_CSS, dieFace, fitZones } from '../pane/gauge.js';
+import { wireTips } from '../pane/tips.js';
 import { esc, fair, gaugeHtml, needsFrac, offerHtml, pushOffers, readData, resultOf, sendStatus, sentLine } from './dice-view.js';
 
 const TUMBLE_MS = 620;
@@ -35,8 +38,10 @@ function setUp(el) {
   const count = d.you + d.moment.dice;
   const memo = `tt-dice|${d.world ?? ''}|${d.id}`;
   const fromHeight = el.offsetHeight;
+  const tips = wireTips(el);
 
   const render = (html) => {
+    tips.hide();
     el.innerHTML = html;
     const g = el.querySelector('.tg');
     if (g) fitZones(g);
@@ -95,24 +100,41 @@ function setUp(el) {
   const offer = (faces, frac, offers, anim) => {
     const r = resultOf(d, faces, frac);
     landed(faces, frac, offerHtml(offers), reduced.matches ? 'none' : anim);
+    // the preview: the gauge and his strain drawn again with the push in outline, swapped in place
+    let shown = 0;
     const ghost = (n) => {
+      if (n === shown) return;
+      shown = n;
       const t = document.createElement('template');
-      t.innerHTML = draw(d, r, { ghost: n });
-      const now = el.querySelector('.tg-gauge');
-      const next = t.content.querySelector('.tg-gauge');
-      if (now && next) now.replaceWith(next);
+      t.innerHTML = draw(d, r, { ghost: offers.find((p) => p.n === n) ?? 0 });
+      for (const sel of ['.tg-gauge', '.tg-strain']) {
+        const now = el.querySelector(sel);
+        const next = t.content.querySelector(sel);
+        if (now && next) now.replaceWith(next);
+      }
       el.querySelector('.tg')?.classList.remove('pour'); // the arrival has played; a swapped gauge must not replay it
       refit();
+    };
+    let armed = 0; // on touch, the push the first tap previewed
+    let touch = false;
+    el.addEventListener('pointerdown', (e) => { touch = e.pointerType === 'touch'; }, true);
+    const arm = (b, n) => {
+      armed = n;
+      for (const o of el.querySelectorAll('.tg-push')) o.classList.toggle('armed', o === b);
     };
     for (const b of el.querySelectorAll('.tg-offer button')) {
       const n = Number(b.dataset.push);
       if (n) {
-        b.addEventListener('pointerenter', () => ghost(n));
-        b.addEventListener('focus', () => ghost(n));
-        b.addEventListener('pointerleave', () => ghost(0));
-        b.addEventListener('blur', () => ghost(0));
+        b.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') ghost(n); });
+        b.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') ghost(armed); });
+        b.addEventListener('focus', () => { if (!touch) ghost(n); });
+        b.addEventListener('blur', () => { if (!touch) ghost(armed); });
       }
-      b.addEventListener('click', () => send(faces, frac, n, n ? 'push' : 'none'));
+      b.addEventListener('click', () => {
+        // a push costs strain for good: on touch, where nothing points before it presses, the first tap shows it
+        if (touch && n && armed !== n) { arm(b, n); ghost(n); return; }
+        send(faces, frac, n, n ? 'push' : 'none');
+      });
     }
   };
 
@@ -138,9 +160,8 @@ function setUp(el) {
     return open();
   }
 
-  const counts = [d.you > 1 && 'the worst you die counts', d.moment.dice > 1 && `the ${d.moment.keep ?? 'better'} moment counts`].filter(Boolean);
-  const throwLabel = `Throw<small>${[`${count}d6`, ...counts].join(' · ')}</small>`;
-  render(draw(d, null, { act: `<button type="button" class="tg-throw">${throwLabel}</button>` }));
+  // the dice drawn in their groups say how many and which counts; the button only throws them
+  render(draw(d, null, { act: `<button type="button" class="tg-throw" aria-label="Throw ${count} dice">Throw</button>` }));
   open();
   const button = el.querySelector('.tg-throw');
   button.addEventListener('click', async () => {
