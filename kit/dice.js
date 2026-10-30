@@ -1,99 +1,107 @@
-// The dice widget: he throws his own character's dice. `tt roll --ask` records the roll and prints this widget whole;
-// the GM passes it to show_widget unchanged:
-//   <div class="tt-dice">Andrew: climb the wet ladder fast<script type="application/json">{…}</script></div>
+// The dice widget: he throws his own character's dice, and the roll is drawn as the Margin gauge (pane/gauge.js) on a
+// dark instrument screen. `tt roll --ask` records the roll and prints this widget whole; the GM passes it to
+// show_widget unchanged:
+//   <div class="tt-dice" style="…">Andrew: climb the wet ladder fast<br><small>…</small><script type="application/json">{…}</script></div>
 //   <script type="module" src="<kit base>kit/dice.js"></script>
-// The data (src/roll.mjs widgetData; staged by dice-view.js) names the stat, what he brings, the line and its reason,
-// the world's load and luck's second try. One click throws the you die and the moment die (crypto-random), shows them
-// told apart, locks, and sends the faces back through sendPrompt with the roll's id and the exact `tt roll --id`
-// command. tt refuses a second result for an id: a widget drawn again after a chat reload offers the button again,
-// so this one remembers its throw where it can. The element's text shows if this module never loads.
+// One click throws the you die, the moment die(s) and the quarter's chance (crypto-random), so the result is final at
+// the throw: the dice tumble and pour into the bar, the line ticks when crossed, the band word rises last. It then
+// sends the faces and the draw back through sendPrompt with the exact `tt roll --id … --dice … --frac …`. tt refuses a
+// second result for an id: a widget drawn again after a chat reload would offer the button again, so this one
+// remembers its throw where it can. A roll tt threw itself (`tt roll … --show`) arrives landed, with no button. The
+// element's own text, on the same dark screen, shows until this module runs, or if it never loads.
 import { addStyle } from './style.js';
-import { esc, readData, sentLine, sumOf, termsHtml } from './dice-view.js';
+import { GAUGE_CSS, dieFace, fitZones } from '../pane/gauge.js';
+import { esc, fair, gaugeHtml, needsFrac, readData, resultOf, sentLine } from './dice-view.js';
 
-const ROLL_MS = 650;
+const TUMBLE_MS = 620;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]], 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
+const d6 = () => fair(6) + 1;
 
-addStyle('tt-dice-css', `
-.tt-dice{background:var(--surface-2,transparent);border:.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;color:var(--text-primary);font:16px/1.5 var(--font-sans,system-ui,sans-serif)}
-.tt-dice .head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
-.tt-dice .head b{font-weight:500}
-.tt-dice .word{flex:none;font-size:13px;color:var(--text-secondary);font-style:italic}
-.tt-dice .terms{margin:6px 0 0;font-size:14px;color:var(--text-secondary)}
-.tt-dice .tr{display:grid;grid-template-columns:4.2rem minmax(0,1fr);gap:8px}
-.tt-dice .k{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--text-secondary));padding-top:2px}
-.tt-dice .v b{font-weight:500;color:var(--text-primary)}
-.tt-dice .t[title]{text-decoration:underline dotted;text-decoration-color:var(--border-strong);text-underline-offset:3px;cursor:help}
-.tt-dice .row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;margin-top:14px}
-.tt-dice .dice{display:flex;gap:10px}
-.tt-dice figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:2px;transition:opacity .3s}
-.tt-dice figcaption{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary)}
-.tt-dice svg{width:40px;height:40px}
-.tt-dice svg rect{fill:var(--surface-1,#eee);stroke:var(--border-strong,#999);stroke-width:1}
-.tt-dice svg circle{fill:var(--text-primary)}
-.tt-dice .you.shown rect{fill:var(--text-primary);stroke:none}.tt-dice .you.shown circle{fill:var(--surface-2,#fff)}
-.tt-dice .moment.shown rect{fill:var(--bg-accent,#e6f1fb);stroke:var(--text-accent,#185fa5)}.tt-dice .moment.shown circle{fill:var(--text-accent,#185fa5)}
-.tt-dice figure.dropped{opacity:.3}
-.tt-dice .sum{font-size:15px;font-variant-numeric:tabular-nums}
-.tt-dice .sum.made{color:var(--text-success)}.tt-dice .sum.short{color:var(--text-danger)}.tt-dice .sum.quarter{color:var(--text-warning)}
-.tt-dice .note{font-size:13px;color:var(--text-secondary)}
-`);
+// The gauge's display faces: the chat's sandbox loads Google Fonts (an @import must open its stylesheet).
+const FONTS = "@import url('https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');";
+addStyle('tt-gauge-css', `${FONTS}
+${GAUGE_CSS}
+.tt-dice[data-ready]{background:none!important;border:0!important;padding:0!important;color:inherit;font:inherit;overflow:hidden}`);
 
-const face = (n, cls) => `<svg viewBox="0 0 26 26" class="${cls}" aria-hidden="true"><rect x=".5" y=".5" width="25" height="25" rx="5"/>${(PIPS[n] ?? []).map(([x, y]) => `<circle cx="${x * 6.5}" cy="${y * 6.5}" r="2.3"/>`).join('')}</svg>`;
-
-// A fair d6 from the browser's crypto source (a byte of 252 or more is thrown again, so no face is favoured).
-function d6() {
-  const b = new Uint8Array(1);
-  do crypto.getRandomValues(b); while (b[0] >= 252);
-  return (b[0] % 6) + 1;
-}
+// The views party/settings.json can pick (tt roll --ask). Only the gauge is built; bones arrives in step 4.
+const VIEWS = { gauge: gaugeHtml };
 
 function setUp(el) {
-  el.dataset.ready = '';
   const d = readData(el.querySelector('script[type="application/json"]')?.textContent ?? '');
   if (!d) return; // not a roll this module can draw: the element's own text stays
+  el.dataset.ready = '';
+  const draw = VIEWS[d.view] ?? gaugeHtml;
   const count = d.you + d.moment.dice;
-  const source = (i) => (i < d.you ? 'you' : 'moment');
-  // Before the throw every die is blank; its caption says whose it is.
-  const diceHtml = (faces, counted) => faces.map((n, i) => `<figure class="${counted && !counted.has(i) ? 'dropped' : ''}">${face(n, `${source(i)}${n ? ' shown' : ''}`)}<figcaption>${source(i)}</figcaption></figure>`).join('');
   const memo = `tt-dice|${d.world ?? ''}|${d.id}`;
-  el.innerHTML = `<div class="head"><span><b>${esc(d.who)}</b>${d.what ? `: ${esc(d.what)}` : ''}</span>${d.forecast?.word ? `<span class="word">${esc(d.forecast.word)}</span>` : ''}</div>
-<div class="terms">${termsHtml(d)}</div>
-<div class="row"><div class="dice">${diceHtml(Array(count).fill(0))}</div><button type="button">Throw</button><span class="sum" aria-live="polite"></span></div>`;
-  const [terms, diceBox, button, sum] = ['.terms', '.dice', 'button', '.sum'].map((s) => el.querySelector(s));
+  const fromHeight = el.offsetHeight;
 
-  function show(faces, note) {
-    const s = sumOf(d, faces);
-    diceBox.innerHTML = diceHtml(faces, s.counted);
-    terms.innerHTML = termsHtml(d, { thrown: true }); // a person's line shows its number now
-    el.querySelector('.word')?.remove();
-    sum.className = `sum ${s.status}`;
-    sum.textContent = s.text;
-    button.remove();
-    sum.after(Object.assign(document.createElement('span'), { className: 'note', textContent: note }));
+  const render = (html) => {
+    el.innerHTML = html;
+    const g = el.querySelector('.tg');
+    if (g) fitZones(g);
+  };
+  // The panel opens from the fallback's height rather than jumping.
+  const open = () => {
+    if (reduced.matches || !fromHeight) return;
+    const to = el.scrollHeight;
+    el.style.height = `${fromHeight}px`;
+    el.getBoundingClientRect();
+    el.style.transition = 'height .32s cubic-bezier(.2,.7,.3,1)';
+    el.style.height = `${to}px`;
+    const done = () => { el.style.height = ''; el.style.transition = ''; };
+    el.addEventListener('transitionend', done, { once: true });
+    setTimeout(done, 420); // a page in the background may never end the transition; the panel must not stay clipped
+  };
+  // Zone words are fitted to the width they get: again on resize, and once the display font has loaded.
+  const refit = () => { const g = el.querySelector('.tg'); if (g) fitZones(g); };
+  new ResizeObserver(refit).observe(el);
+  document.fonts?.ready.then(refit);
+
+  const statusHtml = (kind, text, line = '') => `<span class="tg-status ${kind}" role="status">${esc(text)}${line ? ` <code>${esc(line)}</code> <button type="button" data-copy>copy</button>` : ''}</span>`;
+  // the result as tt settles it (resultOf), drawn landed
+  const landed = (faces, frac, act, anim, was = null) => render(draw(d, resultOf(d, faces, frac, was), { anim, act }));
+
+  // A roll tt threw: no button, already landed (the pour plays once, unless motion is reduced).
+  if (d.result) {
+    landed(d.result.dice, d.result.frac ?? null, statusHtml('', 'Thrown by the GM, as it fell'), reduced.matches ? 'none' : 'pour', d.result.landed ?? null);
+    return open();
   }
 
   let before = null;
   try { before = JSON.parse(localStorage.getItem(memo) ?? 'null'); } catch { /* no storage: tt's id check still holds */ }
-  if (Array.isArray(before) && before.length === count) return show(before, 'Thrown earlier; that result stands.');
+  if (Array.isArray(before)) before = { faces: before, frac: null }; // remembered before the quarter was thrown here
+  if (before && Array.isArray(before.faces) && before.faces.length === count) {
+    landed(before.faces, before.frac ?? null, statusHtml('ok', 'Thrown earlier; that result stands'), 'none');
+    return open();
+  }
 
+  const throwLabel = `Throw<small>${count}d6${d.moment.dice > 1 ? ` · the ${d.moment.keep ?? 'better'} moment counts` : ''}</small>`;
+  render(draw(d, null, { act: `<button type="button" class="tg-throw">${throwLabel}</button>` }));
+  open();
+  const button = el.querySelector('.tg-throw');
   button.addEventListener('click', async () => {
     button.disabled = true;
     const faces = Array.from({ length: count }, d6);
+    const frac = needsFrac(d) ? fair(100) : null;
     if (!reduced.matches) {
-      for (const t0 = performance.now(); performance.now() - t0 < ROLL_MS;) {
-        diceBox.innerHTML = diceHtml(Array.from({ length: count }, d6));
+      const dice = [...el.querySelectorAll('.tg-die')];
+      dice.forEach((f) => f.classList.add('tumble'));
+      for (const t0 = performance.now(); performance.now() - t0 < TUMBLE_MS;) {
+        dice.forEach((f) => { f.classList.remove('blank'); f.querySelector('svg').innerHTML = dieFace(d6()); });
         await new Promise((r) => setTimeout(r, 70));
       }
     }
-    try { localStorage.setItem(memo, JSON.stringify(faces)); } catch { /* as above */ }
-    const line = sentLine(d, faces);
+    try { localStorage.setItem(memo, JSON.stringify({ faces, frac })); } catch { /* as above */ }
+    const line = sentLine(d, faces, frac);
+    let act;
     try {
       sendPrompt(`${line}\n`); // the break keeps it apart from another widget's text in the same reply
-      show(faces, 'Sent');
+      act = statusHtml('ok', 'Sent');
     } catch {
-      show(faces, `Couldn't send. Type: ${line}`);
+      act = statusHtml('bad', "Couldn't send. Type:", line);
     }
+    landed(faces, frac, act, reduced.matches ? 'none' : 'pour');
+    el.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(line));
   });
 }
 

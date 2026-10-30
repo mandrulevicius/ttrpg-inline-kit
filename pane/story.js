@@ -2,6 +2,7 @@
 // docs/designs/markdown-medium.md) and staged as HTML. Pure: no DOM. Everything that came from a file goes through
 // esc(); the chat's words are staged, never added to (html.1), and text in a form it doesn't know is shown plainly.
 import { DEVICES } from './devices.js';
+import { gaugeHtml, resultOf } from './gauge.js';
 import { esc, faceHtml, tip } from './html.js';
 
 // ---- voices (html.6): an ink per speaker, legible on the pane's dark ground
@@ -228,6 +229,21 @@ const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4:
 const die = (n) => `<svg class="die" viewBox="0 0 26 26" aria-hidden="true"><rect x=".5" y=".5" width="25" height="25" rx="5"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 6.5}" cy="${y * 6.5}" r="2.3"/>`).join('')}</svg>`;
 const OUTCOME_CLASS = { 'exceptional success': 'good', 'solid success': 'good', 'success at a cost': 'good', 'near miss': 'warn', failure: 'bad', disaster: 'bad' };
 
+// The recorded roll a 🎲 line printed, from the rolls the pane serves (ctx.rolls, each with its gauge payload): the
+// same session, roller, attempt, total and need. Lines from before the record, or rolls past the served log, find none.
+export function recordOf(r, rolls, session) {
+  if (!r.name || !Array.isArray(rolls)) return null;
+  return rolls.findLast((e) => e.gauge && e.session === session && e.name === r.name && String(e.total) === r.total && String(e.line) === r.needed
+    && (e.why === r.attempt || r.attempt.startsWith(`${e.why}, aimed at `))) ?? null;
+}
+
+// A recorded roll drawn roomy: the Margin gauge (gauge.js) as the chat's widget draws it, settled. The raw line is
+// read aloud; the gauge's own summary is hidden from it, so nothing is said twice.
+function gaugeBlock(raw, d) {
+  const r = resultOf(d, d.result.dice, d.result.frac ?? null, d.result.landed ?? null);
+  return `<div class="blk roll gauge"><span class="sr">${esc(raw)}</span><div aria-hidden="true">${gaugeHtml(d, r, { roomy: true })}</div></div>`;
+}
+
 // The sentence on top (who, what, the outcome, where the eye lands), the proof beneath: the stat and the line, dice
 // faces, the dropped die faded, the modifier, the total and what it needed. Only words the line holds; the raw line is
 // read aloud.
@@ -416,7 +432,11 @@ function blockHtml(b, k, parsed, ctx, named) {
     case 'screen': return screenHtml(b, k === parsed.readout ? ' readout' : '');
     case 'paper': return `<div class="blk paper">${b.rows.map((r) => `<div>${plainInline(r) || ' '}</div>`).join('')}</div>`;
     case 'table': return tableHtml(b);
-    case 'roll': return b.roll ? rollHtml(b.raw, b.roll, ctx.nameOf) : `<p class="blk p">${esc(b.raw)}</p>`;
+    case 'roll': {
+      if (!b.roll) return `<p class="blk p">${esc(b.raw)}</p>`;
+      const rec = recordOf(b.roll, ctx.rolls, ctx.session);
+      return rec ? gaugeBlock(b.raw, rec.gauge) : rollHtml(b.raw, b.roll, ctx.nameOf);
+    }
     case 'ooc': return `<aside class="blk ooc"><b>Out of game</b>${b.lines.map(plainInline).join('<br>')}</aside>`;
     case 'rule': return parsed.blocks[k + 1]?.kind === 'ooc' ? '' : '<hr class="blk rule">';
     default: return `<div class="blk plain">${b.lines.map(esc).join('<br>')}</div>`;
@@ -441,7 +461,8 @@ const isCommand = (text) => /^\/[\w:-]+(?:[ \t][^\n]*)?$/.test(text.trim());
 
 // A turn's view: { html, parsed } (parsed for a GM turn), or null for a turn that shows nothing.
 // ctx: { cast (castOf), nameOf (id -> name), you (the player's character's name), face (folder, level -> a portrait the
-// pane can show, or null; optional) }; `previous`: the last GM turn's parsed. turn.tones: the GM's tones (html.12).
+// pane can show, or null; optional), rolls (the served log's rolls, for a 🎲 line's gauge; optional) }; `previous`:
+// the last GM turn's parsed. turn.tones: the GM's tones (html.12).
 export function turnView(turn, ctx, previous = null) {
   if (turn.who === 'player') {
     if (!turn.text.trim() || isCommand(turn.text)) return null;
@@ -451,7 +472,7 @@ export function turnView(turn, ctx, previous = null) {
   const widgets = (turn.widgets ?? []).map((w, k) => widgetHtml(w, turn, k)).join('');
   if (!parsed.blocks.length && !widgets) return null;
   const named = new Set();
-  const voiceCtx = { ...ctx, voice: voiceOf(turn, ctx) };
+  const voiceCtx = { ...ctx, voice: voiceOf(turn, ctx), session: turn.session };
   const html = widgets + parsed.blocks.map((b, k) => blockHtml(b, k, parsed, voiceCtx, named)).join('')
     + (parsed.closing >= 0 ? '<p class="blk reply">Your reply goes in the chat.</p>' : '');
   return { html, parsed };
