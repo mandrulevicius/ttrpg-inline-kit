@@ -66,7 +66,8 @@ function setUp(el) {
     diceBox.innerHTML = dice.map((n, i) => die(n, i === dropped ? 'shown dropped' : 'shown')).join('');
     const total = kept[0] + kept[1] + mod;
     sum.className = `sum${Number.isFinite(needed) ? (total >= needed ? ' made' : ' short') : ''}`;
-    sum.textContent = `${kept.join(' + ')}${mod ? ` ${signed(mod)}` : ''} = ${total}${Number.isFinite(needed) ? `, needed ${needed}` : ''}`;
+    // Dice in brackets, as the 🎲 line has them, so the modifier never reads as another die (md.6).
+    sum.textContent = `${kept.map((n) => `[${n}]`).join(' ')}${mod ? ` ${signed(mod)}` : ''} = ${total}${Number.isFinite(needed) ? `, needed ${needed}` : ''}`;
     button.remove();
     sum.after(Object.assign(document.createElement('span'), { className: 'note', textContent: note }));
   }
