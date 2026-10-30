@@ -25,8 +25,20 @@ export const SEVERITY = [
   { key: 'destroyed', word: 'destroyed', zone: 'destroyed', short: 'lost', min: 5, max: Infinity },
 ];
 const MISS = { key: 'miss', word: 'Missed', zone: 'miss', short: 'miss', min: -Infinity, max: -1 };
+// Short of the line on a defence roll, the shortfall is how he's hurt (core.6): −1 to −2 graze, −3 to −4 wound, −5 maimed.
+export const SHORTFALL = [
+  { key: 'maimed', word: 'maimed', zone: 'maimed', short: 'maim', min: -Infinity, max: -5, band: 'disaster' },
+  { key: 'wound', word: 'wounded', zone: 'wound', short: 'wound', min: -4, max: -3, band: 'failure' },
+  { key: 'graze', word: 'grazed', zone: 'graze', short: 'graze', min: -2, max: -1, band: 'near miss' },
+];
 export const bandOf = (m) => BANDS.find((b) => m >= b.min && m <= b.max);
 export const severityOf = (m) => SEVERITY.find((s) => m >= s.min && m <= s.max);
+const shortfallOf = (m) => SHORTFALL.find((s) => m >= s.min && m <= s.max);
+const HURTS = [...SEVERITY, ...SHORTFALL];
+// An attack: a called shot, an uncalled hit at a location, or one at a named target. A defence roll is never one.
+export const attackOf = (d) => !d.defend && Boolean(d.called || d.hit || d.target);
+// Whose body a hurt lands on is his (the loss palette): his defence that fell short, or someone's attack on him.
+const onHim = (d) => Boolean(d.target?.pc || (d.defend && d.pc !== false));
 
 const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 const word = (n) => WORDS[n] ?? String(n);
@@ -55,18 +67,18 @@ export function keep(d, faces) {
 }
 
 // A throw, settled as tt settles it: the kept dice plus the net modifier against the whole line, its quarter landing
-// when the draw (0..99) is under the fraction. `landed` given (an old record) wins over the draw.
-export function resultOf(d, faces, frac = null, landed = null) {
+// when the draw (0..99) is under the fraction, then his push. `landed` given (an old record) wins over the draw.
+export function resultOf(d, faces, frac = null, landed = null, push = 0) {
   const { kept, counted } = keep(d, faces);
   const whole = Math.floor(d.mod);
   const f = d.mod - whole;
   const q = f ? (landed ?? (Number.isInteger(frac) ? frac < Math.round(f * 100) : null)) : null;
   const mod = whole + (q ? 1 : 0);
-  const total = kept[0] + kept[1] + mod;
+  const total = kept[0] + kept[1] + mod + push;
   const margin = total - d.needed;
   const band = bandOf(margin);
-  const severity = d.called && margin >= 0 ? severityOf(margin) : null;
-  return { faces, kept, counted, frac, landed: f ? Boolean(q) : null, mod, total, margin, band, severity };
+  const severity = attackOf(d) && margin >= 0 ? severityOf(margin) : d.defend && margin < 0 ? shortfallOf(margin) : null;
+  return { faces, kept, counted, frac, landed: f ? Boolean(q) : null, mod, total, margin, band, severity, push, from: push ? bandOf(margin - push) : null };
 }
 
 // ---- the picture's geometry
@@ -94,25 +106,32 @@ export function geometry(d) {
   const Pbar = P - (Lfull - E);
   const whole = Math.floor(Pbar);
   const q = Pbar - whole;
-  const N = Math.max(E + 7, whole + 13 + (q ? 1 : 0), 12);
+  // room past the best throw for a push (+4) on a roll that offers one or was pushed
+  const N = Math.max(E + 7, whole + 13 + (q ? 1 : 0) + (d.push?.length || d.result?.push ? 4 : 0), 12);
   return { pos, P, load, base, Lfull, E, Pbar, whole, q, N };
 }
 
 // The zone a bar ending in cell k lands in: a band, a severity past the line on a called shot, or, when the shot is
 // at him, "miss" for every shortfall (the shooter's bands are not his).
 function zoneAt(d, g, k) {
-  const m = k - g.E;
+  return zoneOf(d, k - g.E);
+}
+export function zoneOf(d, m) {
   if (d.target?.pc && m < 0) return MISS;
-  if (d.called && m >= 0) return severityOf(m);
+  if (attackOf(d) && m >= 0) return severityOf(m);
+  if (d.defend && m < 0) return shortfallOf(m);
   return bandOf(m);
 }
+// Past the top zone (exceptional, or destroyed on an attack), every 2 more margin is an extra (v2 §6).
+export const extrasOf = (m) => (m >= 5 ? Math.floor((m - 5) / 2) : 0);
 
 // The colour key of a zone: bands by name; a called shot's severity in the shooter's success colours, or in the loss
 // palette when it lands on him (critique.md, "the defending state").
 function tone(d, z) {
   if (z === MISS) return 'clear';
-  if (!SEVERITY.includes(z)) return z.key;
-  if (d.target?.pc) return `hurt-${z.key}`;
+  if (!HURTS.includes(z)) return z.key;
+  if (onHim(d)) return `hurt-${z.key}`;
+  // someone else hurt: his attack landing, or their defence failing, in his success colours
   return { graze: 'cost', wound: 'solid', maimed: 'solid', destroyed: 'exceptional' }[z.key];
 }
 
@@ -121,16 +140,45 @@ function tone(d, z) {
 export function verdict(d, r) {
   const m = r.margin;
   const where = m > 0 ? `${word(m)} past the line` : m === 0 ? 'right on the line' : `${word(-m)} short of the line`;
-  if (d.called && m >= 0) {
+  const pushed = r.push ? ` · pushed +${r.push} from ${fromText(zoneOf(d, m - r.push))}` : '';
+  if (attackOf(d) && m >= 0) {
     const up = SEVERITY[SEVERITY.indexOf(r.severity) + 1];
-    const head = `${cap(bareLocation(d.called))} ${r.severity.word}`;
     const next = up && up.min - m <= 2 ? ` · ${word(up.min - m)} ${d.target?.pc ? 'from' : 'short of'} ${up.key === 'wound' ? 'a wound' : up.key}` : '';
-    return { head, sub: where + next, tone: tone(d, r.severity) };
+    return { head: hurtHead(d, r.severity), sub: where + next + pushed, tone: tone(d, r.severity) };
   }
   if (d.target?.pc) return { head: 'Missed', sub: where, tone: 'clear' };
+  if (d.defend && m < 0) {
+    // how far from the next lesser hurt, or from avoiding it
+    const down = SHORTFALL[SHORTFALL.indexOf(r.severity) + 1];
+    const to = down ? down.min - m : -m;
+    const next = to <= 2 ? ` · ${word(to)} from ${down ? (down.key === 'graze' ? 'a graze' : `a ${down.key}`) : 'avoiding it'}` : '';
+    return { head: hurtHead(d, r.severity), sub: where + next + pushed, tone: tone(d, r.severity) };
+  }
   const up = BANDS[BANDS.indexOf(r.band) + 1];
   const next = m >= 0 && up && up.min - m <= 2 ? ` · ${word(up.min - m)} short of ${up.zone}` : '';
-  return { head: r.band.word, sub: where + next, tone: r.band.key };
+  return { head: r.band.word, sub: (d.defend ? 'avoided · ' : '') + where + next + pushed, tone: r.band.key };
+}
+
+// What a push lifted him from, as the 🎲 line names it (src/dice.mjs pushedFrom).
+const fromText = (z) => (HURTS.includes(z) ? { graze: 'a graze', wound: 'a wound', maimed: 'maimed', destroyed: 'destroyed' }[z.key] : z === MISS ? 'a miss' : z.word.toLowerCase());
+
+// "Left arm wounded" where the blow lands; "Teo wounded" on a target with no location yet; "Wounded" on him.
+function hurtHead(d, s) {
+  const where = d.called ?? d.hit;
+  if (where) return `${cap(bareLocation(where))} ${s.word}`;
+  if (!onHim(d) && d.target?.name) return `${d.target.name} ${s.word}`;
+  return cap(s.word);
+}
+
+// What a push to margin `m` buys, in a few words, for the widget's offer: the zone it reaches, and past the top one,
+// its extras.
+export function buysText(d, m) {
+  const z = zoneOf(d, m);
+  const extras = !d.defend || m >= 0 ? extrasOf(m) : 0;
+  const more = extras ? ` + ${extras === 1 ? 'an extra' : `${word(extras)} extras`}` : '';
+  if (HURTS.includes(z)) return hurtHead(d, z) + more;
+  if (d.defend) return `Avoided${z.key === 'cost' ? ', at a cost' : z.key === 'solid' ? ' cleanly' : ''}${more}`;
+  return z.word + more;
 }
 
 // ---- the body a called shot aims at (rules/core.md: head, torso, arms, legs)
@@ -152,9 +200,9 @@ const OUTLINE = {
   right: { arm: ['path', 'd="M35 21l6 3 3 20-4 1-5-17z"'], leg: ['path', 'd="M25 46h9l-2 30h-6z"'] },
 };
 function bodySvg(d, r) {
-  const part = partOf(d.called);
+  const part = partOf(d.called ?? d.hit ?? '');
   if (!part) return '';
-  const mine = Boolean(d.target?.pc);
+  const mine = onHim(d);
   const shapeOf = (p) => {
     if (!p.includes(' ')) return OUTLINE[p];
     const [side, limb] = p.split(' ');
@@ -178,8 +226,10 @@ export const dieFace = (n) => `<rect x="1" y="1" width="24" height="24" rx="5"/>
 // and luck's second try named by its source.
 export function dieRoles(d) {
   const roller = d.pc === false ? shortName(d.who) : 'you';
+  // worn or spent, his dice carry his state: he throws two or three, and the worst counts
+  const state = d.condition && d.condition.state !== 'steady' ? d.condition.state : '';
   const out = [];
-  for (let i = 0; i < d.you; i++) out.push({ role: 'you', caption: i ? `${roller}, again` : roller });
+  for (let i = 0; i < d.you; i++) out.push({ role: 'you', caption: i ? `${state || roller}, again` : state ? `${roller} · ${state}` : roller });
   for (let i = 0; i < d.moment.dice; i++) out.push({ role: i ? 'luck' : 'moment', caption: i ? `${d.moment.keep === 'worse' ? '−' : '+'} ${d.moment.why || 'the moment, again'}` : 'the moment' });
   return out;
 }
@@ -198,6 +248,11 @@ function lineFlag(d, g, thrown) {
 function chips(d, thrown) {
   const kind = { expert: 'expertise', gear: 'gear he carries', prep: 'what he did to set it up', wound: 'a wound', called: 'a called shot', stat: 'his stat' };
   const out = [];
+  const c = d.condition;
+  if (c && c.state !== 'steady') {
+    const die = c.state === 'spent' ? 'the worst of three you dice counts' : 'the worse of two you dice counts';
+    out.push(`<span class="c cond" title="${esc(`his condition: ${die}`)}">${esc(c.state)}${c.why ? ` · ${esc(c.why)}` : ''}</span>`);
+  }
   for (const t of d.bar) out.push(`<span class="c ${t.n < 0 ? 'mine-load' : 'mine'}" title="${esc(kind[t.kind] ?? 'his side')}">${esc(quarters(t.n))} ${esc(t.why)}</span>`);
   const why = d.line.vs ? `${d.line.vs}${thrown ? ` ${d.line.n}` : ''}` : [`${d.line.rung ?? 'line'} ${d.line.n}`, d.line.why].filter(Boolean).join(', ');
   out.push(`<span class="c line" title="the line">${esc(why)}</span>`);
@@ -211,7 +266,7 @@ function chips(d, thrown) {
 export function proofText(d, r) {
   const dice = r.kept.map((n) => `[${n}]`).join(' ');
   const mod = r.landed === null ? (d.mod ? ` ${quarters(d.mod)}` : '') : ` ${quarters(d.mod)}→${quarters(r.mod, '0')}`;
-  return `${dice}${mod} = ${r.total}, needed ${d.needed}`;
+  return `${dice}${mod}${r.push ? ` push +${r.push}` : ''} = ${r.total}, needed ${d.needed}`;
 }
 
 // The summary a screen reader gets in place of the picture.
@@ -225,10 +280,11 @@ function spoken(d, g, r) {
 }
 
 // The gauge's HTML. `r` is the throw's result (resultOf), or null before it. opts:
-//   anim: 'pour' (dice pour into the bar, the line ticks, the word rises last) | 'none'
+//   anim: 'pour' (dice pour into the bar, the line ticks, the word rises last) | 'push' (only his push arrives) | 'none'
 //   roomy: the pane's Story column
-//   act: the foot's right side (the widget's button or status)
-export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '' } = {}) {
+//   act: the foot's right side (the widget's button, offer or status)
+//   ghost: a push on offer, previewed as outlined cells past the bar's end (the offer's hover or focus)
+export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '', ghost = 0 } = {}) {
   const g = geometry(d);
   const thrown = Boolean(r);
   const roles = dieRoles(d);
@@ -262,7 +318,16 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '' 
     put(qcell, thrown ? (r.landed ? 'q in' : 'q out') : 'q', thrown ? order : null);
     if (thrown && r.landed) { end += 1; if (cross === null && end >= g.E) cross = order; }
   }
+  // his push: past the dice and the quarter, in its own colour, so what he bought reads apart from what he brought
+  if (thrown && r.push) {
+    for (let k = 1; k <= r.push; k++) {
+      put(end + k, 'push', order++);
+      if (cross === null && end + k >= g.E) cross = order - 1;
+    }
+    end += r.push;
+  }
   const total = end; // the gauge's bar end; its margin is tt's (resultOf), checked in the tests
+  if (thrown && ghost) for (let k = 1; k <= ghost; k++) put(total + k, 'ghost');
   // load between the nominal line and the one that counts: the world's net (hatched, or dotted relief when it's in his
   // favour), then his own negatives (hatched in his colour), each labelled by its size; the terms are in the chips
   const world = g.load.filter((t) => !t.mine);
@@ -309,7 +374,7 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '' 
   const chance = (z) => {
     if (!fb) return 0;
     if (SEVERITY.includes(z) || z === MISS) return 0;
-    return fb[z.tt] ?? 0;
+    return fb[z.tt ?? z.band] ?? 0; // a defence's shortfall is the band it stands for
   };
   let shape = '';
   if (fb) {
@@ -341,7 +406,7 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '' 
   const loadRow = labelled.length ? `<div class="tg-loadl">${labelled.map((s) => `<span class="${s.cls.replace('ld', '').trim()}" style="${span(s.cells[0], s.cells.length)}" title="${esc(s.terms.map((t) => `${quarters(t.mine ? -t.n : t.n)} ${t.why}`).join(' · '))}">${esc(s.text)}</span>`).join('')}</div>` : '';
   const zoneRow = zones.map((z, j) => {
     const near = focusAt >= 0 && Math.abs(j - focusAt) <= 1;
-    const cls = [`tone-${tone(d, z.z)}`, z.z === lit ? 'on' : '', j === focusAt ? 'focus' : near ? 'nb' : 'far', SEVERITY.includes(z.z) || !d.called || d.target?.pc ? '' : 'miss'].filter(Boolean).join(' ');
+    const cls = [`tone-${tone(d, z.z)}`, z.z === lit ? 'on' : '', j === focusAt ? 'focus' : near ? 'nb' : 'far', HURTS.includes(z.z) || !attackOf(d) || d.target?.pc ? '' : 'miss'].filter(Boolean).join(' ');
     return `<div class="${cls}" style="${span(z.from, z.n)}" title="${esc(cap(z.z.zone))}"><span class="lg">${esc(z.z.zone)}</span><span class="sm">${esc(z.z.short)}</span></div>`;
   }).join('');
   const lineAt = `--at:${g.E}`;
@@ -360,7 +425,7 @@ ${lineHtml}
 
   // readout: before the throw the stat against the line and the forecast's word; after it, the band word and how far
   let readout;
-  let body = d.called ? bodySvg(d, r) : '';
+  let body = d.called || d.hit ? bodySvg(d, r) : '';
   if (!thrown) {
     readout = `<div class="tg-terms"><span class="st">${esc(d.stat ? statText(d.stat) : d.who)}</span><span class="vs">against</span><span class="ln">${esc(d.line.vs ?? `${d.line.rung ?? 'line'} ${d.line.n}`)}</span></div>`
       + (d.forecast?.word ? `<div class="tg-sol"><span>solution</span><b>${esc(d.forecast.word)}</b></div>` : '');
@@ -378,7 +443,7 @@ ${lineHtml}
 
   const bandKey = thrown ? verdict(d, r).tone : '';
   const steps = order + (g.q ? 1 : 0);
-  return `<div class="tg${roomy ? ' roomy' : ''}${anim === 'pour' && thrown ? ' pour' : ''}${d.target?.pc ? ' defend' : ''}" data-phase="${thrown ? 'result' : 'before'}" data-line="${g.E}"${thrown ? ` data-end="${total}"` : ''}${bandKey ? ` data-tone="${bandKey}"` : ''} style="--steps:${steps}">
+  return `<div class="tg${roomy ? ' roomy' : ''}${anim === 'pour' && thrown ? ' pour' : ''}${anim === 'push' && thrown ? ' pushing' : ''}${onHim(d) ? ' defend' : ''}" data-phase="${thrown ? 'result' : 'before'}" data-line="${g.E}"${thrown ? ` data-end="${total}"` : ''}${bandKey ? ` data-tone="${bandKey}"` : ''} style="--steps:${steps}">
 <p class="tg-sr">${esc(spoken(d, g, r))}</p>
 <div class="tg-head" aria-hidden="true"><span class="tg-who">${esc(d.who)}</span><span class="tg-what">${esc(d.what)}</span><span class="tg-id">load test${d.id ? ` · ${esc(d.id)}` : ''}</span></div>
 <div class="tg-read" aria-hidden="true"><div class="tg-readl">${readout}</div>${body}</div>
@@ -413,7 +478,7 @@ export function fitZones(root) {
 
 export const GAUGE_CSS = `
 .tg{--glass:#0c1218;--glass2:#111a23;--edge:#22303f;--ink:#dbe3ec;--dim:#9aa9ba;--faint:#7d8fa3;--cell:#16202b;--cell-edge:#1f2c3a;
---stat:#4aa8e0;--mod:#7cc3ec;--you:#eadfc4;--you-cell:#c9a66b;--moment:#8193a8;--moment-cell:#8796a6;--luck:#b89cff;--quarter:#f0c76a;
+--stat:#4aa8e0;--mod:#7cc3ec;--you:#eadfc4;--you-cell:#c9a66b;--moment:#8193a8;--moment-cell:#8796a6;--luck:#b89cff;--quarter:#f0c76a;--push:#ff6fb0;
 --disaster:#ff5a5f;--failure:#f4805c;--near:#f2a446;--cost:#e0c95a;--solid:#4fd8a8;--exceptional:#9cf0ff;--clear:#7fb4d6;
 --hurt-graze:#f2b354;--hurt-wound:#f47a4e;--hurt-maimed:#ff4d57;--hurt-destroyed:#ff2f7a;
 --tone:var(--dim);--disp:Oxanium,'Bahnschrift','DIN Alternate','Segoe UI',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
@@ -461,6 +526,7 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-chips .line{color:var(--ink);border-color:color-mix(in srgb,var(--ink) 30%,var(--edge))}
 .tg-chips .load{border-style:dashed}
 .tg-chips .luck{border-color:color-mix(in srgb,var(--luck) 60%,var(--edge));color:var(--ink)}
+.tg-chips .cond{border-color:color-mix(in srgb,var(--you-cell) 70%,var(--edge));color:var(--you)}
 .tg-chips [title]{cursor:help}
 
 /* the gauge: one grid, the stat cap in its own column, then a column per cell */
@@ -485,6 +551,7 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-cells i.q{background:linear-gradient(90deg,color-mix(in srgb,var(--quarter) 55%,var(--cell)) 0 50%,var(--cell) 50%);border:1px dashed color-mix(in srgb,var(--quarter) 70%,transparent)}
 .tg-cells i.q.in{background:color-mix(in srgb,var(--quarter) 70%,var(--cell));border:1px solid transparent}
 .tg-cells i.q.out{background:var(--cell);border:1px dashed color-mix(in srgb,var(--quarter) 40%,transparent)}
+.tg-cells i.push{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--push) 75%,var(--cell)) 0 3px,color-mix(in srgb,var(--push) 52%,var(--cell)) 3px 5px);border-color:transparent;box-shadow:inset 0 0 0 1px var(--push)}
 .tg-cells i.ld::after,.tg-cells i.short::after,.tg-cells i.relief::after{content:"";position:absolute;inset:0;border-radius:1px}
 .tg-cells i.ld::after{background:repeating-linear-gradient(135deg,rgba(219,227,236,.24) 0 2px,transparent 2px 6px)}
 .tg-cells i.ld.mine::after{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--mod) 45%,transparent) 0 2px,transparent 2px 6px)}
@@ -492,8 +559,11 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-cells i.gate{border-color:color-mix(in srgb,var(--ink) 55%,transparent)}
 .tg-cells i.rim{background:color-mix(in srgb,var(--band) 55%,var(--cell));border-color:color-mix(in srgb,var(--ink) 55%,transparent)}
 .tg-cells i.head{background:var(--band);border-color:transparent;box-shadow:0 0 8px color-mix(in srgb,var(--band) 50%,transparent)}
+.tg-cells i.push.head,.tg-cells i.push.rim{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--push) 80%,var(--cell)) 0 3px,color-mix(in srgb,var(--push) 55%,var(--cell)) 3px 5px);box-shadow:inset 0 0 0 1px var(--band),0 0 8px color-mix(in srgb,var(--band) 50%,transparent)}
 .tg-cells i.short{background:var(--cell);border-color:color-mix(in srgb,var(--band) 55%,transparent)}
 .tg-cells i.short::after{background:repeating-linear-gradient(135deg,var(--band) 0 2px,transparent 2px 5px);opacity:.75}
+.tg-cells i.ghost{background:color-mix(in srgb,var(--push) 30%,var(--cell));border:1px dashed var(--push);box-shadow:0 0 6px color-mix(in srgb,var(--push) 40%,transparent)}
+.tg-cells i.ghost::after{opacity:.2}
 .tg-cells i.end::before{content:"";position:absolute;inset:-6px -5px;z-index:2;pointer-events:none;--c:var(--band);
 background:linear-gradient(var(--c),var(--c)) 0 0/7px 2px,linear-gradient(var(--c),var(--c)) 0 0/2px 7px,linear-gradient(var(--c),var(--c)) 100% 0/7px 2px,linear-gradient(var(--c),var(--c)) 100% 0/2px 7px,
 linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(--c)) 0 100%/2px 7px,linear-gradient(var(--c),var(--c)) 100% 100%/7px 2px,linear-gradient(var(--c),var(--c)) 100% 100%/2px 7px;background-repeat:no-repeat;filter:drop-shadow(0 0 3px var(--c))}
@@ -539,6 +609,18 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg-status.ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--solid);box-shadow:0 0 6px var(--solid)}
 .tg-status.bad{color:var(--near)}
 .tg-status code{font:12px var(--mono);color:var(--ink);background:var(--cell);padding:2px 6px;border-radius:3px;user-select:all;overflow-wrap:anywhere}
+.tg-act:has(.tg-send),.tg-act:has(.tg-offer){flex-basis:100%;margin-left:0}
+.tg-offer{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;width:100%}
+.tg-offer>p{flex-basis:100%;margin:0 0 2px;font-size:12.5px;color:var(--dim)}
+.tg-offer button{font:inherit;text-align:left;cursor:pointer;border-radius:6px;padding:7px 12px;line-height:1.25;min-width:0}
+.tg-offer .tg-take{font:700 12px/1 var(--disp);letter-spacing:.16em;text-transform:uppercase;color:var(--glass);background:var(--ink);border:0;padding:10px 16px}
+.tg-offer .tg-push{background:none;color:var(--ink);border:1px solid color-mix(in srgb,var(--push) 55%,var(--edge))}
+.tg-offer .tg-push:hover,.tg-offer .tg-push:focus-visible{background:color-mix(in srgb,var(--push) 12%,transparent);border-color:var(--push)}
+.tg-offer .tg-push b{font:700 14px/1 var(--disp);color:var(--push);margin-right:6px}
+.tg-offer .tg-push small{display:block;margin-top:3px;font-size:11.5px;color:var(--dim)}.tg-offer .tg-push small.mark{color:var(--near)}
+.tg-offer button:focus-visible{outline:2px solid var(--stat);outline-offset:2px}
+.tg-send{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.tg-send code{display:block;margin:4px 0 6px;line-height:1.45}
+.tg-send.bad>span{flex-basis:100%}.tg-send details{font-size:12px;color:var(--faint)}.tg-send details[open]{flex-basis:100%}.tg-send summary{cursor:pointer;color:var(--dim)}.tg-send summary:focus-visible{outline:2px solid var(--stat);outline-offset:2px}
 .tg-status button{font:inherit;font-size:11px;background:none;border:1px solid var(--edge);border-radius:4px;color:var(--dim);padding:2px 8px;cursor:pointer}
 
 /* the arrival: dice pour into the bar, the line ticks when crossed, the margin locks on, the band word rises last */
@@ -551,6 +633,9 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg.pour .tg-verdict,.tg.pour .tg-body .hit{animation:tg-rise .5s both;animation-delay:calc(var(--steps) * 45ms + 560ms)}
 .tg.pour .tg-proof{animation:tg-fade .3s both;animation-delay:calc(var(--steps) * 45ms + 700ms)}
 .tg.pour .tg-die:not(.dropped) svg{animation:tg-pulse .5s both;animation-delay:calc(var(--i) * 300ms + 60ms)}
+.tg.pour .tg-cells i.push{animation:tg-fill .16s both;animation-delay:calc(var(--i) * 45ms + 120ms)}
+.tg.pushing .tg-cells i.push{animation:tg-fill .3s both}.tg.pushing .tg-verdict,.tg.pushing .tg-body .hit{animation:tg-rise .45s both .2s}
+.tg.pushing .tg-cells i.head,.tg.pushing .tg-cells i.rim{animation:tg-lock .35s both .15s}
 @keyframes tg-fill{from{opacity:0;transform:scaleY(.2)}to{opacity:1;transform:none}}
 @keyframes tg-q{0%,40%,70%{opacity:.25}20%,55%,100%{opacity:1}}
 @keyframes tg-tick{0%{box-shadow:0 0 0 rgba(219,227,236,0)}30%{box-shadow:0 0 14px 3px rgba(219,227,236,.8);border-left-color:#fff}100%{box-shadow:0 0 6px rgba(219,227,236,.35)}}
@@ -577,6 +662,7 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
   .tg-loadl{visibility:hidden;height:4px}
   .tg-act{margin-left:0;width:100%}
   .tg-throw{flex:1}
+  .tg-offer button{flex:1 1 100%}
   .tg-die{width:48px}
   .tg-id{margin-left:0}
 }

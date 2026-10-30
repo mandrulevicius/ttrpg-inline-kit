@@ -187,33 +187,36 @@ export function speech(text, cast = [], named = new Set(), voice = null) {
 }
 
 // ---- the dice line (md.6): the sentence src/dice.mjs formatRoll prints, then its proof
-//   🎲 <name>: <attempt>[, aimed at <location>] → <Outcome>[, <location> <hurt>] ([<Stat ±n> · ][<line> · ]<dice>[ <mod>] = <total>, needed <n>[, advantage|disadvantage])
+//   🎲 <name>: <attempt>[, aimed at <location>] → <Outcome>[, <who or where> <hurt> | , avoided][, pushed from <band>] ([<Stat ±n> · ][<line> · ]<dice>[ <mod>][ push +n] = <total>, needed <n>[, advantage|disadvantage])
 // <mod> is signed, in quarters, with its rounding when it had a fraction ("+2½→+3", "+½→0"). The stat and the line
 // (with its reason) came with the recorded roll; lines printed before it have neither. The name is the one the party
 // knows, as printed. A hidden roll prints without 🎲 and is never read as one.
 
 const OUTCOMES = ['Exceptional success', 'Solid success', 'Success at a cost', 'Near miss', 'Failure', 'Disaster'];
-const ROLL = new RegExp(`^🎲 (?:(.+) )?→ (${OUTCOMES.join('|')})(?:, (.+ (?:grazed|wounded|maimed|destroyed or an organ hit)))? `
+const ROLL = new RegExp(`^🎲 (?:(.+) )?→ (${OUTCOMES.join('|')})(?:, (.+ (?:grazed|wounded|maimed|destroyed or an organ hit)|avoided))?(?:, pushed from ([a-z ]+))? `
   + '\\((?:(\\p{Lu}[\\p{L}-]* [+-]\\d+) · )?(?:(.+?) · )?'
-  + '((?:\\[[1-6]\\] )*\\[[1-6]\\])(?: ~~\\[([1-6])\\]~~)?(?: ([+-]\\d*[¼½¾]?(?:→[+-]?\\d+)?))? = (-?\\d+), needed (-?\\d+)(?:, (advantage|disadvantage))?\\)$', 'u');
+  + '((?:\\[[1-6]\\] )*\\[[1-6]\\])((?: ~~\\[[1-6]\\]~~)*)(?: ([+-]\\d*[¼½¾]?(?:→[+-]?\\d+)?))?(?: push \\+([1-4]))? = (-?\\d+), needed (-?\\d+)(?:, (advantage|disadvantage))?\\)$', 'u');
 // The form before T34 (`🎲 kade +1 · [4][3] = 8 vs 8 → +0 success at a cost — why`), which older sessions hold.
 const OLD_ROLL = /^🎲 (?:(\S+) )?([+-]\d+) · ((?:\[[1-6]\])+)(?: \(dropped \[([1-6])\]\))? = (-?\d+) vs (\d+)(?: \(called (.+?), line \+\d+\))? → [+-]\d+ ([a-z ]+?)(?: · (.+?) to (.+?))?(?: — (.+))?$/u;
 
 const dieList = (s) => [...s.matchAll(/\d/g)].map(Number);
 
-// { name, attempt, outcome, hurt, stat, line, kept, dropped, mod, total, needed, mode, called, id } or null. `id`: the
-// old form's roller id, for the view to name; the new form already names them. `kept` is the you die, then the moment
-// die that counted (in lines before the recorded roll, simply the two dice kept).
+// { name, attempt, outcome, hurt, pushed, push, stat, line, kept, dropped, drops, mod, total, needed, mode, called, id }
+// or null. `id`: the old form's roller id, for the view to name; the new form already names them. `kept` is the you
+// die, then the moment die that counted (in lines before the recorded roll, simply the two dice kept); `drops` every
+// die set aside (a worn or spent you die, luck's other moment die), `dropped` the first of them. `pushed`: the band
+// the dice alone gave, when he pushed `push`.
 export function rollOf(line) {
   const text = line.trim();
   const m = ROLL.exec(text);
   if (m) {
     const lead = m[1] ?? '';
     const cut = lead.indexOf(': ');
+    const drops = dieList(m[8] ?? '');
     return {
       name: cut >= 0 ? lead.slice(0, cut) : '', attempt: cut >= 0 ? lead.slice(cut + 2) : lead, outcome: m[2], hurt: m[3] ?? '',
-      stat: m[4] ?? '', line: m[5] ?? '',
-      kept: dieList(m[6]), dropped: m[7] ? Number(m[7]) : null, mod: m[8] ?? '', total: m[9], needed: m[10], mode: m[11] ?? '', called: '', id: '',
+      pushed: m[4] ?? '', push: m[10] ? Number(m[10]) : 0, stat: m[5] ?? '', line: m[6] ?? '',
+      kept: dieList(m[7]), dropped: drops[0] ?? null, drops, mod: m[9] ?? '', total: m[11], needed: m[12], mode: m[13] ?? '', called: '', id: '',
     };
   }
   const o = OLD_ROLL.exec(text);
@@ -221,7 +224,8 @@ export function rollOf(line) {
   return {
     name: '', id: o[1] ?? '', attempt: o[11] ?? '', outcome: o[8].charAt(0).toUpperCase() + o[8].slice(1), hurt: o[9] ? `${o[9]} to ${o[10]}` : '',
     stat: '', line: '',
-    kept: dieList(o[3]), dropped: o[4] ? Number(o[4]) : null, mod: o[2] === '+0' ? '' : o[2], total: o[5], needed: o[6], mode: '', called: o[7] ?? '',
+    kept: dieList(o[3]), dropped: o[4] ? Number(o[4]) : null, drops: o[4] ? [Number(o[4])] : [], mod: o[2] === '+0' ? '' : o[2], total: o[5], needed: o[6], mode: '', called: o[7] ?? '',
+    pushed: '', push: 0,
   };
 }
 
@@ -240,7 +244,7 @@ export function recordOf(r, rolls, session) {
 // A recorded roll drawn roomy: the Margin gauge (gauge.js) as the chat's widget draws it, settled. The raw line is
 // read aloud; the gauge's own summary is hidden from it, so nothing is said twice.
 function gaugeBlock(raw, d) {
-  const r = resultOf(d, d.result.dice, d.result.frac ?? null, d.result.landed ?? null);
+  const r = resultOf(d, d.result.dice, d.result.frac ?? null, d.result.landed ?? null, d.result.push ?? 0);
   return `<div class="blk roll gauge"><span class="sr">${esc(raw)}</span><div aria-hidden="true">${gaugeHtml(d, r, { roomy: true })}</div></div>`;
 }
 
@@ -251,10 +255,11 @@ function rollHtml(raw, r, nameOf) {
   const name = r.name || (r.id && nameOf(r.id));
   const lead = `${name ? `<b>${esc(name)}</b>${r.attempt ? ': ' : ''}` : ''}${esc(r.attempt)}`;
   const terms = [r.stat, r.line].filter(Boolean).join(' · ');
-  const dropped = r.dropped ? `<span class="dropped"${tip('Not counted: the die advantage or disadvantage set aside')}>${die(r.dropped)}</span>` : '';
-  const proof = [r.mod, `= ${r.total}`].filter(Boolean).join(' ') + `, needed ${r.needed}${r.mode ? `, ${r.mode}` : ''}${r.called ? `, called ${r.called}` : ''}`;
+  const drops = r.drops ?? (r.dropped ? [r.dropped] : []);
+  const dropped = drops.map((n) => `<span class="dropped"${tip('Not counted: a die set aside (advantage or disadvantage, or the better of his worn or spent you dice)')}>${die(n)}</span>`).join('');
+  const proof = [r.mod, r.push ? `push +${r.push}` : '', `= ${r.total}`].filter(Boolean).join(' ') + `, needed ${r.needed}${r.mode ? `, ${r.mode}` : ''}${r.called ? `, called ${r.called}` : ''}`;
   return `<div class="blk roll"><span class="sr">${esc(raw)}</span><span class="rv" aria-hidden="true">`
-    + `<span class="rlead">${lead}${lead ? ' → ' : ''}<span class="rband ${OUTCOME_CLASS[r.outcome.toLowerCase()] ?? ''}">${esc(r.outcome)}</span>${r.hurt ? `<span class="rsev">, ${esc(r.hurt)}</span>` : ''}</span>`
+    + `<span class="rlead">${lead}${lead ? ' → ' : ''}<span class="rband ${OUTCOME_CLASS[r.outcome.toLowerCase()] ?? ''}">${esc(r.outcome)}</span>${r.hurt ? `<span class="rsev">, ${esc(r.hurt)}</span>` : ''}${r.pushed ? `<span class="rsev">, pushed from ${esc(r.pushed)}</span>` : ''}</span>`
     + `<span class="rproof">${terms ? `<span class="rterms">${esc(terms)}</span>` : ''}<span class="dice">${r.kept.map(die).join('')}${dropped}</span><span class="sum">${esc(proof)}</span></span></span></div>`;
 }
 
@@ -472,7 +477,9 @@ export function turnView(turn, ctx, previous = null) {
   const widgets = (turn.widgets ?? []).map((w, k) => widgetHtml(w, turn, k)).join('');
   if (!parsed.blocks.length && !widgets) return null;
   const named = new Set();
-  const voiceCtx = { ...ctx, voice: voiceOf(turn, ctx), session: turn.session };
+  // A turn that draws a dice widget (a result tt showed with --show) already pictures its roll: its 🎲 line stays a line.
+  const drawsDice = (turn.widgets ?? []).some((w) => /^dice/i.test(w.title ?? ''));
+  const voiceCtx = { ...ctx, voice: voiceOf(turn, ctx), session: turn.session, rolls: drawsDice ? [] : ctx.rolls };
   const html = widgets + parsed.blocks.map((b, k) => blockHtml(b, k, parsed, voiceCtx, named)).join('')
     + (parsed.closing >= 0 ? '<p class="blk reply">Your reply goes in the chat.</p>' : '');
   return { html, parsed };
