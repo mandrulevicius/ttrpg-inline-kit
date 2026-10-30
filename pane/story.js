@@ -186,19 +186,23 @@ export function speech(text, cast = [], named = new Set(), voice = null) {
 }
 
 // ---- the dice line (md.6): the sentence src/dice.mjs formatRoll prints, then its proof
-//   🎲 <name>: <attempt>[, aimed at <location>] → <Outcome>[, <location> <hurt>] (<dice>[ ±mod] = <total>, needed <n>[, advantage|disadvantage])
-// The name is the one the party knows, as printed. A hidden roll prints without 🎲 and is never read as one.
+//   🎲 <name>: <attempt>[, aimed at <location>] → <Outcome>[, <location> <hurt>] ([<Stat ±n> · ][<line> · ]<dice>[ <mod>] = <total>, needed <n>[, advantage|disadvantage])
+// <mod> is signed, in quarters, with its rounding when it had a fraction ("+2½→+3", "+½→0"). The stat and the line
+// (with its reason) came with the recorded roll; lines printed before it have neither. The name is the one the party
+// knows, as printed. A hidden roll prints without 🎲 and is never read as one.
 
 const OUTCOMES = ['Exceptional success', 'Solid success', 'Success at a cost', 'Near miss', 'Failure', 'Disaster'];
 const ROLL = new RegExp(`^🎲 (?:(.+) )?→ (${OUTCOMES.join('|')})(?:, (.+ (?:grazed|wounded|maimed|destroyed or an organ hit)))? `
-  + '\\(((?:\\[[1-6]\\] )*\\[[1-6]\\])(?: ~~\\[([1-6])\\]~~)?(?: ([+-]\\d+))? = (-?\\d+), needed (\\d+)(?:, (advantage|disadvantage))?\\)$', 'u');
+  + '\\((?:(\\p{Lu}[\\p{L}-]* [+-]\\d+) · )?(?:(.+?) · )?'
+  + '((?:\\[[1-6]\\] )*\\[[1-6]\\])(?: ~~\\[([1-6])\\]~~)?(?: ([+-]\\d*[¼½¾]?(?:→[+-]?\\d+)?))? = (-?\\d+), needed (-?\\d+)(?:, (advantage|disadvantage))?\\)$', 'u');
 // The form before T34 (`🎲 kade +1 · [4][3] = 8 vs 8 → +0 success at a cost — why`), which older sessions hold.
 const OLD_ROLL = /^🎲 (?:(\S+) )?([+-]\d+) · ((?:\[[1-6]\])+)(?: \(dropped \[([1-6])\]\))? = (-?\d+) vs (\d+)(?: \(called (.+?), line \+\d+\))? → [+-]\d+ ([a-z ]+?)(?: · (.+?) to (.+?))?(?: — (.+))?$/u;
 
 const dieList = (s) => [...s.matchAll(/\d/g)].map(Number);
 
-// { name, attempt, outcome, hurt, kept, dropped, mod, total, needed, mode, called, id } or null. `id`: the old form's
-// roller id, for the view to name; the new form already names them.
+// { name, attempt, outcome, hurt, stat, line, kept, dropped, mod, total, needed, mode, called, id } or null. `id`: the
+// old form's roller id, for the view to name; the new form already names them. `kept` is the you die, then the moment
+// die that counted (in lines before the recorded roll, simply the two dice kept).
 export function rollOf(line) {
   const text = line.trim();
   const m = ROLL.exec(text);
@@ -207,13 +211,15 @@ export function rollOf(line) {
     const cut = lead.indexOf(': ');
     return {
       name: cut >= 0 ? lead.slice(0, cut) : '', attempt: cut >= 0 ? lead.slice(cut + 2) : lead, outcome: m[2], hurt: m[3] ?? '',
-      kept: dieList(m[4]), dropped: m[5] ? Number(m[5]) : null, mod: m[6] ?? '', total: m[7], needed: m[8], mode: m[9] ?? '', called: '', id: '',
+      stat: m[4] ?? '', line: m[5] ?? '',
+      kept: dieList(m[6]), dropped: m[7] ? Number(m[7]) : null, mod: m[8] ?? '', total: m[9], needed: m[10], mode: m[11] ?? '', called: '', id: '',
     };
   }
   const o = OLD_ROLL.exec(text);
   if (!o) return null;
   return {
     name: '', id: o[1] ?? '', attempt: o[11] ?? '', outcome: o[8].charAt(0).toUpperCase() + o[8].slice(1), hurt: o[9] ? `${o[9]} to ${o[10]}` : '',
+    stat: '', line: '',
     kept: dieList(o[3]), dropped: o[4] ? Number(o[4]) : null, mod: o[2] === '+0' ? '' : o[2], total: o[5], needed: o[6], mode: '', called: o[7] ?? '',
   };
 }
@@ -222,16 +228,18 @@ const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4:
 const die = (n) => `<svg class="die" viewBox="0 0 26 26" aria-hidden="true"><rect x=".5" y=".5" width="25" height="25" rx="5"/>${PIPS[n].map(([x, y]) => `<circle cx="${x * 6.5}" cy="${y * 6.5}" r="2.3"/>`).join('')}</svg>`;
 const OUTCOME_CLASS = { 'exceptional success': 'good', 'solid success': 'good', 'success at a cost': 'good', 'near miss': 'warn', failure: 'bad', disaster: 'bad' };
 
-// The sentence on top (who, what, the outcome, where the eye lands), the proof beneath: dice faces, the dropped die
-// faded, the modifier, the total and what it needed. Only words the line holds; the raw line is read aloud.
+// The sentence on top (who, what, the outcome, where the eye lands), the proof beneath: the stat and the line, dice
+// faces, the dropped die faded, the modifier, the total and what it needed. Only words the line holds; the raw line is
+// read aloud.
 function rollHtml(raw, r, nameOf) {
   const name = r.name || (r.id && nameOf(r.id));
   const lead = `${name ? `<b>${esc(name)}</b>${r.attempt ? ': ' : ''}` : ''}${esc(r.attempt)}`;
-  const dropped = r.dropped ? `<span class="dropped"${tip('Not counted: the third die of advantage or disadvantage')}>${die(r.dropped)}</span>` : '';
+  const terms = [r.stat, r.line].filter(Boolean).join(' · ');
+  const dropped = r.dropped ? `<span class="dropped"${tip('Not counted: the die advantage or disadvantage set aside')}>${die(r.dropped)}</span>` : '';
   const proof = [r.mod, `= ${r.total}`].filter(Boolean).join(' ') + `, needed ${r.needed}${r.mode ? `, ${r.mode}` : ''}${r.called ? `, called ${r.called}` : ''}`;
   return `<div class="blk roll"><span class="sr">${esc(raw)}</span><span class="rv" aria-hidden="true">`
     + `<span class="rlead">${lead}${lead ? ' → ' : ''}<span class="rband ${OUTCOME_CLASS[r.outcome.toLowerCase()] ?? ''}">${esc(r.outcome)}</span>${r.hurt ? `<span class="rsev">, ${esc(r.hurt)}</span>` : ''}</span>`
-    + `<span class="rproof"><span class="dice">${r.kept.map(die).join('')}${dropped}</span><span class="sum">${esc(proof)}</span></span></span></div>`;
+    + `<span class="rproof">${terms ? `<span class="rterms">${esc(terms)}</span>` : ''}<span class="dice">${r.kept.map(die).join('')}${dropped}</span><span class="sum">${esc(proof)}</span></span></span></div>`;
 }
 
 // ---- blocks: one turn's text, split by the grammar's forms
