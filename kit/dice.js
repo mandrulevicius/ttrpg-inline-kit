@@ -138,9 +138,10 @@ function setUp(el) {
     }
   };
 
-  // A roll tt threw: no button, already landed (the pour plays once, unless motion is reduced).
+  // A roll already settled: tt threw it (--show), or the pane serves his own throw landed once the log has it (by:
+  // 'player'). No button; the pour plays once, unless motion is reduced.
   if (d.result) {
-    landed(d.result.dice, d.result.frac ?? null, statusHtml('', 'Thrown by the GM, as it fell'), reduced.matches ? 'none' : 'pour', d.result.landed ?? null, d.result.push ?? 0);
+    landed(d.result.dice, d.result.frac ?? null, statusHtml('', d.by === 'player' ? 'Your throw, as it fell' : 'Thrown by the GM, as it fell'), reduced.matches ? 'none' : 'pour', d.result.landed ?? null, d.result.push ?? 0);
     return open();
   }
 

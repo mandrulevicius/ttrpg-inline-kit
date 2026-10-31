@@ -3,10 +3,10 @@
 // pointable in turn. Both are drawn inside the gauge's box (.tg), because the chat's widget frame clips anything past
 // it. Shared by the chat's dice widget (kit/dice.js) and the pane's Story column (teller.js).
 //
-// A target is any element with data-tip="<glossary key>" (pane/glossary.js). Optional: data-why, the reason behind it in
+// A target is any element with data-term="<glossary key>" (pane/glossary.js). Optional: data-why, the reason behind it in
 // words (the flavour, shown first); data-line, a one-line summary in place of the glossary's; data-hl, the gauge cells
 // it made (cells carry data-k), lit while its tip shows. A target that is itself an action (data-act) never opens a
-// popout: its click is its action.
+// popout: its click is its action. (data-term, not data-tip: the pane's own hover reads data-tip as text to show.)
 import { TERMS, icon, linkTerms } from './glossary.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -37,7 +37,7 @@ function place(box, el, root, below) {
 }
 
 function tipHtml(el) {
-  const term = TERMS[el.dataset.tip] ?? {};
+  const term = TERMS[el.dataset.term] ?? {};
   // an action's tip is one short line: its own preview (the gauge, the meter) is the explanation, and must stay in view
   if ('act' in el.dataset) return `<span class="tg-tip-h">${icon(term.icon)}<span>${esc(el.dataset.line ?? term.tip ?? '')}</span></span>`;
   const why = el.dataset.why;
@@ -59,7 +59,7 @@ export function wireTips(container) {
   let pointer = 'mouse';
 
   const targetOf = (e) => {
-    const t = e.target instanceof Element ? e.target.closest('[data-tip]') : null;
+    const t = e.target instanceof Element ? e.target.closest('[data-term]') : null;
     return t && container.contains(t) && t.closest('.tg') ? t : null;
   };
   const light = (el, on) => {
@@ -84,7 +84,8 @@ export function wireTips(container) {
     tip.setAttribute('role', 'tooltip');
     tip.innerHTML = tipHtml(el);
     root.append(tip);
-    place(tip, el, root, false);
+    // a die or the strain meter tips below itself, so the cells it lights on the bar above stay in view
+    place(tip, el, root, Boolean(el.closest('.tg-dice')));
     tipFor = el;
     light(el, true);
   }
@@ -95,17 +96,22 @@ export function wireTips(container) {
     popFor = null;
   }
   function openPop(el) {
-    const key = el.dataset.tip;
+    const key = el.dataset.term;
     const term = TERMS[key];
+    // a term clicked inside a popout replaces it in place: the new one anchors where the old one did, since closing the
+    // old one takes the clicked term with it
+    const anchor = pop?.contains(el) ? popFor : el;
+    const why = el.dataset.why ? `<p class="tg-pop-why">${esc(el.dataset.why)}</p>` : '';
     closePop();
     hide();
-    const root = el.closest('.tg');
+    const root = anchor?.closest('.tg');
+    if (!root) return;
+    el = anchor;
     pop = document.createElement('div');
     pop.className = 'tg-pop';
     pop.id = `tg-pop-${++seq}`;
     pop.setAttribute('role', 'dialog');
     pop.setAttribute('aria-label', term.name);
-    const why = el.dataset.why ? `<p class="tg-pop-why">${esc(el.dataset.why)}</p>` : '';
     pop.innerHTML = `<div class="tg-pop-h">${icon(term.icon)}<b>${esc(term.name)}</b><button type="button" class="tg-pop-x" aria-label="Close">×</button></div>${why}<p>${esc(term.tip)}</p><p>${linkTerms(term.more, esc)}</p>`;
     root.append(pop);
     place(pop, el, root, true);
@@ -136,7 +142,7 @@ export function wireTips(container) {
     const t = targetOf(e);
     if (!t) return;
     if ('act' in t.dataset) return; // its own action handles it (an offer button previews and sends)
-    if (TERMS[t.dataset.tip]?.more) {
+    if (TERMS[t.dataset.term]?.more) {
       e.preventDefault();
       if (popFor === t) closePop();
       else openPop(t);
@@ -157,6 +163,9 @@ export function wireTips(container) {
     if (tip) hide();
     else if (pop) { const back = popFor; closePop(); back?.focus(); }
   });
+  // A pointer that leaves the document (a widget's frame) or a window that loses focus leaves no tip behind.
+  document.documentElement.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') hide(); });
+  window.addEventListener('blur', hide);
   const controls = { hide: () => { hide(); closePop(); } };
   wired.set(container, controls);
   return controls;

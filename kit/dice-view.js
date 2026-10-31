@@ -67,9 +67,9 @@ export function offerHtml(offers) {
     const cost = p.cost ?? null;
     const extras = p.extras ? `<span class="xs">${icon('extra').repeat(p.extras)}</span>` : '';
     const marks = p.marks ? `, and ${plural(p.marks, 'a mark', 'marks')} past your limit` : '';
-    const line = `+${p.n} to your total${cost !== null ? `, for ${cost} strain` : ''}${p.marks ? ` and ${plural(p.marks, 'a mark', 'marks')}` : ''}`;
+    const line = `+${p.n} to your total${cost !== null ? `, for ${cost} strain` : ''}${p.marks ? ` and ${plural(p.marks, 'a mark', 'marks')}, each −1 to the rolls it touches for about a week` : ''}`;
     const label = `Push +${p.n}: ${p.buys}${cost !== null ? `; costs ${cost} strain` : ''}, leaving you ${p.state}${marks}`;
-    return `<button type="button" class="tg-push" data-push="${p.n}" data-act data-tip="push" data-line="${esc(line)}" aria-label="${esc(label)}">`
+    return `<button type="button" class="tg-push" data-push="${p.n}" data-act data-term="push" data-line="${esc(line)}" aria-label="${esc(label)}">`
       + `<span class="gain">${icon('push')}<b>+${p.n}</b><span class="to tone-${p.tone ?? ''}">${esc(p.head ?? p.buys)}${extras}</span></span>`
       + `<span class="cost">${cost !== null ? `${icon('strain')}+${cost}` : esc(p.state)}${p.marks ? `<span class="mk">${icon('mark')}${p.marks > 1 ? `×${p.marks}` : ''}</span>` : ''}</span>`
       + '<span class="again">tap again to push</span></button>';

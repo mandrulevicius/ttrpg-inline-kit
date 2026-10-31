@@ -6,8 +6,8 @@
 //
 // Mechanics are drawn, words are flavour (ui-principles): the line, the strain meter, which die counts and what each
 // term adds are pictures; each term's reason and its rule sit one level down, behind the tips (tips.js) that read
-// data-tip (a key of glossary.js), data-why (the reason, in words) and data-hl (the cells it made, data-k).
-import { icon, TERMS } from './glossary.js';
+// data-term (a key of glossary.js), data-why (the reason, in words) and data-hl (the cells it made, data-k).
+import { icon, keepSvg, TERMS } from './glossary.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -248,7 +248,7 @@ export function dieRoles(d) {
 const shortName = (name) => (/^(the|a|an)\s/i.test(name) ? name : String(name).split(/[\s,]+/)[0]);
 
 /// A tip target's attributes (tips.js): its glossary key, its reason in words, the cells it made.
-const tipAttrs = (key, why = '', hl = '') => ` data-tip="${key}"${why ? ` data-why="${esc(why)}"` : ''}${hl ? ` data-hl="${hl}"` : ''}`;
+const tipAttrs = (key, why = '', hl = '') => ` data-term="${key}"${why ? ` data-why="${esc(why)}"` : ''}${hl ? ` data-hl="${hl}"` : ''}`;
 // A focusable one: a button whose label says in words what the picture shows.
 const tipButton = (cls, key, label, inner, why = '', hl = '') => `<button type="button" class="tg-tb ${cls}"${tipAttrs(key, why, hl)} aria-label="${esc(label)}">${inner}</button>`;
 
@@ -329,8 +329,8 @@ function strainHtml(d, r, preview) {
 }
 
 // The dice in their groups: his you dice (with his strain beside them, which sets how many), then the moment's. Under
-// each group its rule: whose they are and, when there are more than one, which counts (a mark pointing down: the
-// lowest; up: the highest). Thrown, the dice that count stand lit and the ones set aside lie dim, tipped and struck.
+// each group its rule: whose they are and, when there are more than one, which counts, drawn from dice (keepSvg: the
+// one that counts plain, the rest dim and struck). Thrown, the dice that count stand lit and the ones set aside lie dim, tipped and struck.
 function diceHtml(d, r, roles, strain) {
   const thrown = Boolean(r);
   const order = thrown ? [...r.counted].sort((a, b) => a - b) : [];
@@ -338,7 +338,8 @@ function diceHtml(d, r, roles, strain) {
     const x = roles[i];
     const n = thrown ? r.faces[i] : 0;
     const counted = thrown ? r.counted.has(i) : true;
-    const luck = x.role === 'luck' ? tipAttrs(d.moment.keep === 'worse' ? 'dis' : 'adv', d.moment.why) : '';
+    // each die points at its own cells on the bar; luck's second die names its source
+    const luck = x.role === 'luck' ? tipAttrs(d.moment.keep === 'worse' ? 'dis' : 'adv', d.moment.why, `d${i}`) : tipAttrs(x.role, '', `d${i}`);
     return `<figure class="tg-die ${x.role}${thrown ? (counted ? ' kept' : ' dropped') : ''}${n ? '' : ' blank'}"${thrown && counted ? ` style="--i:${order.indexOf(i)}"` : ''}${luck}>`
       + `<svg viewBox="0 0 26 26" role="img" aria-label="${esc(`${x.caption}: ${n || 'not thrown'}${thrown && !counted ? ', set aside' : ''}`)}">${dieFace(n)}</svg></figure>`;
   };
@@ -347,11 +348,11 @@ function diceHtml(d, r, roles, strain) {
   const who = npc ? `<span class="nm">${esc(npc)}</span>` : icon('you');
   const state = d.condition?.state && d.condition.state !== 'steady' ? d.condition.state : 'worn';
   const youRule = d.you > 1
-    ? tipButton('tg-rule many', state, `${d.you} you dice, the lowest counts`, `${who}${icon('low', 'keep')}`, d.condition?.why ?? '')
+    ? tipButton('tg-rule many', state, `${d.you} you dice, the lowest counts`, `${who}${keepSvg(d.you, true)}`, d.condition?.why ?? '')
     : tipButton('tg-rule', 'you', npc ? `${npc}'s die` : 'the you die', who);
   const keep = d.moment.keep === 'worse' ? 'dis' : 'adv';
   const momentRule = d.moment.dice > 1
-    ? tipButton('tg-rule many', keep, `two moment dice, the ${keep === 'dis' ? 'lower' : 'higher'} counts${d.moment.why ? `: ${d.moment.why}` : ''}`, `${icon('moment')}${icon(keep === 'dis' ? 'low' : 'high', 'keep')}`, d.moment.why ?? '')
+    ? tipButton('tg-rule many', keep, `two moment dice, the ${keep === 'dis' ? 'lower' : 'higher'} counts${d.moment.why ? `: ${d.moment.why}` : ''}`, `${icon('moment')}${keepSvg(2, keep === 'dis')}`, d.moment.why ?? '')
     : tipButton('tg-rule', 'moment', 'the moment die', icon('moment'));
   return `<div class="tg-dice">${strain}<div class="tg-grp you"><div class="tg-row">${idx((x) => x.role === 'you').map(die).join('')}</div>${youRule}</div>`
     + `<div class="tg-grp moment"><div class="tg-row">${idx((x) => x.role !== 'you').map(die).join('')}</div>${momentRule}</div></div>`;
@@ -408,6 +409,7 @@ export function gaugeHtml(d, r = null, { anim = 'none', roomy = false, act = '',
         const c = end + k;
         if (cross === null && c >= g.E) cross = order;
         put(c, `${roles[i].role} pour`, order++);
+        key(c, `d${i}`); // the die that poured it (its tip lights them)
       }
       end += r.faces[i];
     }
@@ -545,23 +547,42 @@ ${gauge}
 </div>`;
 }
 
-// A narrow screen names the zone in focus and its neighbours only, in their short forms when the full word won't fit;
-// a word that still doesn't fit is left out rather than cut ("maime"). Run after layout, and again on resize.
-// The lit zone is always named, spilling over its neighbours (whose words then give way) when even its short form is
-// wider than its cells.
+// Every zone keeps its name at any width. When a word is wider than its zone, the names stagger on two rows, so each
+// may spread over its neighbours, which sit on the other row; each is nudged inside the gauge's ends. Two names on a
+// row that still meet: the one farther from the zone in focus takes its short form, then gives way (a word is left out
+// rather than cut). The lit zone is always named. Run after layout, and again on resize.
 export function fitZones(root) {
-  const zones = [...root.querySelectorAll('.tg-zones > div')];
-  const over = (z) => z.scrollWidth > z.clientWidth + 1;
-  const spill = [];
-  zones.forEach((z, j) => {
+  const row = root.querySelector('.tg-zones');
+  if (!row) return;
+  const zones = [...row.children];
+  row.classList.remove('stagger');
+  for (const z of zones) {
     z.classList.remove('use-sm', 'hide');
-    if (!over(z)) return;
-    z.classList.add('use-sm');
-    if (!over(z)) return;
-    if (z.classList.contains('on')) spill.push(j);
-    else z.classList.add('hide');
-  });
-  for (const j of spill) for (const n of [zones[j - 1], zones[j + 1]]) n?.classList.add('hide');
+    for (const s of z.children) s.style.translate = '';
+  }
+  const label = (z) => z.querySelector(z.classList.contains('use-sm') ? '.sm' : '.lg');
+  const width = (el) => el.getBoundingClientRect().width;
+  if (!zones.some((z) => width(label(z)) > width(z) + 1)) return;
+  row.classList.add('stagger');
+  const ends = row.getBoundingClientRect();
+  const keepIn = (z) => {
+    const s = label(z);
+    s.style.translate = '';
+    const r = s.getBoundingClientRect();
+    const dx = r.left < ends.left ? ends.left - r.left : r.right > ends.right ? ends.right - r.right : 0;
+    if (dx) s.style.translate = `${dx}px 0`;
+  };
+  zones.forEach(keepIn);
+  const focus = Math.max(0, zones.findIndex((z) => z.classList.contains('on') || z.classList.contains('focus')));
+  const meet = (a, b) => !a.classList.contains('hide') && !b.classList.contains('hide') && label(a).getBoundingClientRect().right + 4 > label(b).getBoundingClientRect().left;
+  for (let j = 2; j < zones.length; j++) {
+    const [a, b] = [zones[j - 2], zones[j]];
+    if (!meet(a, b)) continue;
+    const far = b.classList.contains('on') || (!a.classList.contains('on') && Math.abs(j - 2 - focus) > Math.abs(j - focus)) ? a : b;
+    far.classList.add('use-sm');
+    keepIn(far);
+    if (meet(a, b)) far.classList.add('hide');
+  }
 }
 
 // ---- the look: a dark instrument screen in both chat themes, set in a bezel that follows the chat's own surface. The
@@ -587,7 +608,7 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-tb{all:unset;box-sizing:border-box;cursor:help;-webkit-tap-highlight-color:transparent}
 .tg-tb:focus-visible{outline:2px solid var(--stat);outline-offset:2px;border-radius:4px}
 .tg .ti{display:block;flex:none;width:14px;height:14px}
-.tg [data-tip]{cursor:help}
+.tg [data-term]{cursor:help}
 .tg-sr{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 .tg-head{display:flex;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
@@ -643,11 +664,11 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 .tg-cells i{position:relative;display:block;background:var(--cell);border:1px solid var(--cell-edge);border-radius:2px}
 .tg-cells i.stat{background:color-mix(in srgb,var(--stat) 62%,var(--cell));border-color:transparent}
 .tg-cells i.mod{background:color-mix(in srgb,var(--mod) 46%,var(--cell));border-color:transparent}
-.tg-cells i.you{background:color-mix(in srgb,var(--you-cell) 46%,var(--cell));border-color:transparent}
-.tg-cells i.moment,.tg-cells i.luck{background:color-mix(in srgb,var(--moment-cell) 40%,var(--cell));border-color:transparent}
+.tg-cells i.you{background:color-mix(in srgb,var(--you-cell) 62%,var(--cell));border-color:transparent}
+.tg-cells i.moment,.tg-cells i.luck{background:color-mix(in srgb,var(--moment-cell) 72%,var(--cell));border-color:transparent}
 .tg-cells i.q{background:linear-gradient(90deg,color-mix(in srgb,var(--quarter) 55%,var(--cell)) 0 50%,var(--cell) 50%);border:1px dashed color-mix(in srgb,var(--quarter) 70%,transparent)}
 .tg-cells i.q.in{background:color-mix(in srgb,var(--quarter) 70%,var(--cell));border:1px solid transparent}
-.tg-cells i.q.out{background:var(--cell);border:1px dashed color-mix(in srgb,var(--quarter) 40%,transparent)}
+.tg-cells i.q.out{background:var(--cell);border:1px dashed color-mix(in srgb,var(--quarter) 40%,transparent);outline:1.5px dashed color-mix(in srgb,var(--quarter) 75%,transparent);outline-offset:-2px}
 .tg-cells i.push{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--push) 75%,var(--cell)) 0 3px,color-mix(in srgb,var(--push) 52%,var(--cell)) 3px 5px);border-color:transparent;box-shadow:inset 0 0 0 1px var(--push)}
 .tg-cells i.ld::after,.tg-cells i.short::after,.tg-cells i.relief::after{content:"";position:absolute;inset:0;border-radius:1px}
 .tg-cells i.ld::after{background:repeating-linear-gradient(135deg,rgba(219,227,236,.24) 0 2px,transparent 2px 6px)}
@@ -666,7 +687,10 @@ box-shadow:inset 0 0 0 1px var(--edge),inset 0 1px 0 rgba(255,255,255,.04)}
 background:linear-gradient(var(--c),var(--c)) 0 0/7px 2px,linear-gradient(var(--c),var(--c)) 0 0/2px 7px,linear-gradient(var(--c),var(--c)) 100% 0/7px 2px,linear-gradient(var(--c),var(--c)) 100% 0/2px 7px,
 linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(--c)) 0 100%/2px 7px,linear-gradient(var(--c),var(--c)) 100% 100%/7px 2px,linear-gradient(var(--c),var(--c)) 100% 100%/2px 7px;background-repeat:no-repeat;filter:drop-shadow(0 0 3px var(--c))}
 .tg-zones{grid-row:5;display:grid;grid-template-columns:subgrid;margin-top:5px}
-.tg-zones div{position:relative;border-top:3px solid color-mix(in srgb,var(--tone) 50%,transparent);padding:3px 1px 0;font-size:11px;line-height:1.2;color:var(--dim);text-align:center;white-space:nowrap;min-width:0;overflow:hidden}
+.tg-zones div{position:relative;display:flex;justify-content:center;border-top:3px solid color-mix(in srgb,var(--tone) 50%,transparent);padding:3px 1px 0;font-size:11px;line-height:1.2;color:var(--dim);white-space:nowrap;min-width:0;overflow:hidden}
+.tg-zones span{flex:none}
+.tg-zones.stagger div{overflow:visible}.tg-zones.stagger div:nth-child(even){padding-top:17px}
+
 .tg-zones .sm{display:none}.tg-zones .use-sm .lg{display:none}.tg-zones .use-sm .sm{display:inline}.tg-zones .hide span{visibility:hidden}
 .tg-zones div.on{border-top-color:var(--tone);color:var(--tone);font-weight:600;z-index:1;overflow:visible}
 .tg-zones .miss{border-top-style:dotted}
@@ -686,7 +710,7 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
 .tg-rule.many{border-top:1.5px solid currentColor;padding-top:3px;margin-top:2px}
 .tg-rule.many::before,.tg-rule.many::after{content:"";position:absolute;top:-5px;width:1.5px;height:5px;background:currentColor}
 .tg-rule.many::before{left:0}.tg-rule.many::after{right:0}
-.tg-rule .keep{width:11px;height:11px}
+.tg-rule .keep{display:block;height:12px;width:auto;margin-left:3px}
 .tg-rule .nm{font:600 11px/1 var(--disp);letter-spacing:.12em;text-transform:uppercase}
 .tg-strain{display:flex;align-items:center;gap:7px;color:var(--you);align-self:center}
 .tg-strain .face{width:26px;height:26px}
@@ -794,7 +818,6 @@ linear-gradient(var(--c),var(--c)) 0 100%/7px 2px,linear-gradient(var(--c),var(-
   .tg-gauge{column-gap:1px}
   .tg-line{margin-left:calc(var(--at) * (100% + 1px) / var(--n) - 1.5px)}
   .tg-flag span{left:calc(var(--at) * (100% + 1px) / var(--n) - 1.5px)}
-  .tg-zones div.far span{visibility:hidden}
   .tg-act{margin-left:0;width:100%}
   .tg-throw{flex:1}
   .tg-offer .tg-take{flex:1 1 100%}.tg-offer .tg-push{flex:1 1 40%}
